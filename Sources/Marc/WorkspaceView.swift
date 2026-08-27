@@ -1,0 +1,585 @@
+import AppKit
+import MarcCore
+import SwiftUI
+
+struct WorkspaceView: View {
+    @EnvironmentObject private var store: DocumentStore
+    @AppStorage("workspaceMode") private var mode: WorkspaceMode = .rendered
+    @AppStorage("tocPosition") private var tocPosition: SidebarPosition = .left
+    @AppStorage("showTableOfContents") private var showTableOfContents = true
+    @AppStorage("attentionAnalysisAcknowledged") private var attentionAnalysisAcknowledged = false
+    @State private var showGraph = false
+    @State private var showAttention = false
+    @State private var showAttentionDisclosure = false
+    @State private var showThemeEditor = false
+    @State private var showFind = false
+    @State private var navigationTarget: String?
+    @State private var attentionHighlightTarget: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if store.documents.isEmpty {
+                WelcomeView()
+            } else {
+                TabStrip()
+                Divider()
+                if let document = store.selectedDocument {
+                    conflictBanner(document)
+                    workspace(for: document)
+                }
+            }
+        }
+        .toolbar { toolbarContent }
+        .onChange(of: store.selectedID) {
+            attentionHighlightTarget = nil
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            urls.filter { ["md", "markdown", "mdown", "mkd"].contains($0.pathExtension.lowercased()) }
+                .forEach(store.open)
+            return true
+        }
+        .alert(
+            "marc",
+            isPresented: Binding(
+                get: { store.errorMessage != nil },
+                set: { if !$0 { store.errorMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { store.errorMessage = nil }
+        } message: {
+            Text(store.errorMessage ?? "")
+        }
+    }
+
+    @ViewBuilder
+    private func workspace(for document: MarkdownDocument) -> some View {
+        HStack(spacing: 0) {
+            if showTableOfContents && tocPosition == .left {
+                TableOfContentsView(document: document, navigationTarget: $navigationTarget)
+                Divider()
+            }
+
+            DocumentWorkspaceView(
+                document: document,
+                mode: $mode,
+                navigationTarget: $navigationTarget,
+                attentionHighlightTarget: $attentionHighlightTarget,
+                showFind: $showFind
+            )
+
+            if showTableOfContents && tocPosition == .right {
+                Divider()
+                TableOfContentsView(document: document, navigationTarget: $navigationTarget)
+            }
+
+            if showGraph {
+                Divider()
+                ReferenceGraphView(document: document)
+                    .frame(width: 300)
+            }
+
+            if showAttention {
+                Divider()
+                AttentionPanel(
+                    document: document,
+                    mode: $mode,
+                    navigationTarget: $navigationTarget,
+                    highlightTarget: $attentionHighlightTarget,
+                    close: { showAttention = false }
+                )
+                .frame(width: 280)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func conflictBanner(_ document: MarkdownDocument) -> some View {
+        if document.externalConflict {
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.yellow)
+                Text("This file changed on disk while you had unsaved edits.")
+                Spacer()
+                Button("Reload from Disk") { document.reloadFromDisk() }
+                Button("Keep Mine") { store.overwriteWithLocalVersion(document) }
+            }
+            .font(.callout)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(.yellow.opacity(0.12))
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItemGroup {
+            Button {
+                store.showOpenPanel()
+            } label: {
+                Label("Open", systemImage: "folder")
+            }
+            .help("Open Markdown (⌘O)")
+
+            Picker("View", selection: $mode) {
+                ForEach(WorkspaceMode.allCases) { item in
+                    Label(item.label, systemImage: item.symbol).tag(item)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 250)
+
+            Button {
+                showTableOfContents.toggle()
+            } label: {
+                Label("Table of Contents", systemImage: "sidebar.left")
+            }
+            .keyboardShortcut("t", modifiers: [.command, .shift])
+            .help("Toggle table of contents (⇧⌘T)")
+
+            Button {
+                showGraph.toggle()
+            } label: {
+                Label("Linked Files", systemImage: "point.3.connected.trianglepath.dotted")
+            }
+            .keyboardShortcut("g", modifiers: [.command, .shift])
+            .help("Toggle linked files (⇧⌘G)")
+
+            Button {
+                guard let document = store.selectedDocument else { return }
+                if !attentionAnalysisAcknowledged {
+                    showAttentionDisclosure = true
+                } else {
+                    showAttention = true
+                    if !document.hasCurrentAttentionResults && document.attentionState != .running {
+                        document.startAttentionAnalysis(force: true)
+                    }
+                }
+            } label: {
+                Label("Analyze Attention", systemImage: "scope")
+            }
+            .keyboardShortcut("a", modifiers: [.command, .shift])
+            .disabled(store.selectedDocument == nil)
+            .help("Analyze attention locally on request (⇧⌘A)")
+            .popover(isPresented: $showAttentionDisclosure, arrowEdge: .bottom) {
+                AttentionDisclosureView(
+                    modelAvailable: AttentionAnalyzer.isAvailable,
+                    analyze: {
+                        guard let document = store.selectedDocument else { return }
+                        attentionAnalysisAcknowledged = true
+                        showAttentionDisclosure = false
+                        showAttention = true
+                        document.startAttentionAnalysis(force: true)
+                    },
+                    cancel: {
+                        showAttentionDisclosure = false
+                    }
+                )
+                .frame(width: 340)
+                .padding()
+            }
+
+            Button {
+                showFind.toggle()
+            } label: {
+                Label("Find", systemImage: "magnifyingglass")
+            }
+            .keyboardShortcut("f")
+
+            Button {
+                showThemeEditor.toggle()
+            } label: {
+                Label("Theme", systemImage: "paintpalette")
+            }
+            .keyboardShortcut(",", modifiers: [.command, .shift])
+            .popover(isPresented: $showThemeEditor, arrowEdge: .bottom) {
+                if let document = store.selectedDocument {
+                    ThemeEditorView(document: document)
+                        .frame(width: 340)
+                        .padding()
+                }
+            }
+
+            Menu {
+                Button("New Project Group…") {
+                    store.createGroup(assigning: store.selectedDocument)
+                }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+
+                if let document = store.selectedDocument {
+                    Menu("Move Current File") {
+                        Button("Ungrouped") {
+                            store.assign(document, to: nil)
+                        }
+                        Divider()
+                        ForEach(store.groups) { group in
+                            Button {
+                                store.assign(document, to: group.id)
+                            } label: {
+                                if store.group(for: document)?.id == group.id {
+                                    Label(group.name, systemImage: "checkmark")
+                                } else {
+                                    Text(group.name)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Divider()
+
+                Picker("Sort Tabs", selection: $store.tabSortOrder) {
+                    ForEach(TabSortOrder.allCases) { order in
+                        Text(order.label).tag(order)
+                    }
+                }
+            } label: {
+                Label("Project Groups", systemImage: "rectangle.3.group")
+            }
+            .help("Group tabs by project (⇧⌘N)")
+
+            Menu {
+                Button("Move Contents to Left") { tocPosition = .left }
+                Button("Move Contents to Right") { tocPosition = .right }
+                Divider()
+                Button("Copy File Path") { store.copySelectedPath() }
+                Button("Reveal in Finder") { store.revealSelectedInFinder() }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+        }
+    }
+}
+
+private struct AttentionDisclosureView: View {
+    let modelAvailable: Bool
+    let analyze: () -> Void
+    let cancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            Label("Local Attention Analysis", systemImage: "scope")
+                .font(.headline)
+                .foregroundStyle(.purple)
+            Text("marc will use Apple’s local sentence embedding model to suggest a small number of urgent, important, or review-worthy passages.")
+                .font(.callout)
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Runs only when you request it", systemImage: "hand.tap")
+                Label("No network requests or notifications", systemImage: "network.slash")
+                Label("Suggestions link to original source text", systemImage: "text.quote")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+            if !modelAvailable {
+                Label("The approved local embedding model is unavailable.", systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel", action: cancel)
+                Button("Analyze", action: analyze)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.purple)
+                    .disabled(!modelAvailable)
+            }
+        }
+    }
+}
+
+struct WelcomeView: View {
+    @EnvironmentObject private var store: DocumentStore
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Spacer()
+            Image(systemName: "text.document")
+                .font(.system(size: 64, weight: .light))
+                .foregroundStyle(.tint)
+            VStack(spacing: 8) {
+                Text("marc")
+                    .font(.largeTitle.bold())
+                Text("A calmer way to read what agents write.")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+            }
+            Button("Open Markdown…") { store.showOpenPanel() }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+
+            if !store.recentURLs.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Recent")
+                        .font(.headline)
+                        .padding(.horizontal, 8)
+                    ForEach(store.recentURLs.prefix(6), id: \.self) { url in
+                        Button {
+                            store.open(url: url)
+                        } label: {
+                            HStack {
+                                Image(systemName: "doc.text")
+                                VStack(alignment: .leading) {
+                                    Text(url.lastPathComponent)
+                                    Text(url.deletingLastPathComponent().path)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer()
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                    }
+                }
+                .frame(width: 440)
+                .padding(12)
+                .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 12))
+            }
+            Text("You can also drop .md files anywhere in this window.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+struct TabStrip: View {
+    @EnvironmentObject private var store: DocumentStore
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(store.groups) { group in
+                    GroupTabSection(group: group)
+                }
+
+                let ungrouped = store.groupDocuments(nil)
+                if !ungrouped.isEmpty {
+                    UngroupedTabSection(documents: ungrouped)
+                }
+
+                Button {
+                    store.showOpenPanel()
+                } label: {
+                    Image(systemName: "plus")
+                        .padding(8)
+                }
+                .buttonStyle(.plain)
+                .help("Open another file")
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+        }
+        .background(.bar)
+    }
+}
+
+private struct GroupTabSection: View {
+    @EnvironmentObject private var store: DocumentStore
+    let group: DocumentGroup
+    @State private var isDropTargeted = false
+
+    private var documents: [MarkdownDocument] {
+        store.groupDocuments(group.id)
+    }
+
+    var body: some View {
+        HStack(spacing: 2) {
+            Button {
+                store.toggleGroup(group)
+            } label: {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(group.color)
+                        .frame(width: 8, height: 8)
+                    Text(group.name)
+                        .font(.caption.bold())
+                        .lineLimit(1)
+                    Text("\(documents.count)")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    Image(systemName: group.isCollapsed ? "chevron.right" : "chevron.left")
+                        .font(.caption2.bold())
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 9)
+                .padding(.vertical, 8)
+            }
+            .buttonStyle(.plain)
+            .help(group.isCollapsed ? "Expand \(group.name)" : "Collapse \(group.name)")
+            .contextMenu {
+                Button("Rename Group…") { store.renameGroup(group) }
+                if let folderPath = group.folderPath {
+                    Text("Auto-groups \(folderPath)")
+                }
+                Divider()
+                Button("Move Group Left") { store.moveGroup(group, by: -1) }
+                    .disabled(store.groups.first?.id == group.id)
+                Button("Move Group Right") { store.moveGroup(group, by: 1) }
+                    .disabled(store.groups.last?.id == group.id)
+                Divider()
+                Button("Delete Group…", role: .destructive) { store.deleteGroup(group) }
+            }
+
+            if !group.isCollapsed {
+                ForEach(documents) { document in
+                    TabItemView(document: document)
+                }
+            }
+        }
+        .padding(3)
+        .background(
+            group.color.opacity(isDropTargeted ? 0.26 : 0.1),
+            in: RoundedRectangle(cornerRadius: 9)
+        )
+        .dropDestination(for: URL.self) { urls, _ in
+            store.moveFiles(urls, to: group.id)
+        } isTargeted: {
+            isDropTargeted = $0
+        }
+        .help("Drag Markdown tabs here to move them into \(group.name)")
+    }
+}
+
+private struct UngroupedTabSection: View {
+    @EnvironmentObject private var store: DocumentStore
+    let documents: [MarkdownDocument]
+    @State private var isDropTargeted = false
+
+    var body: some View {
+        HStack(spacing: 2) {
+            if !documents.isEmpty {
+                Text("UNGROUPED")
+                    .font(.caption2.bold())
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 7)
+            }
+            ForEach(documents) { document in
+                TabItemView(document: document)
+            }
+        }
+        .padding(3)
+        .background(
+            isDropTargeted ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.05),
+            in: RoundedRectangle(cornerRadius: 8)
+        )
+        .dropDestination(for: URL.self) { urls, _ in
+            store.moveFiles(urls, to: nil)
+        } isTargeted: {
+            isDropTargeted = $0
+        }
+        .help("Drag Markdown tabs here to remove their project group")
+    }
+}
+
+private struct TabItemView: View {
+    @EnvironmentObject private var store: DocumentStore
+    @ObservedObject var document: MarkdownDocument
+
+    var body: some View {
+        Button {
+            store.selectedID = document.id
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: "doc.text")
+                    .foregroundStyle(.secondary)
+                Text(document.displayName)
+                    .lineLimit(1)
+                if document.isDirty {
+                    Circle()
+                        .frame(width: 6, height: 6)
+                        .foregroundStyle(.orange)
+                }
+                if !document.attentionResults.isEmpty {
+                    TabReadingBadge(
+                        count: document.attentionSuggestionCount,
+                        color: .purple,
+                        opacity: document.attentionResultsAreStale ? 0.4 : 1
+                    )
+                }
+                if document.changedCount > 0 {
+                    TabReadingBadge(count: document.changedCount, color: .orange)
+                } else if document.unreadCount > 0 {
+                    TabReadingBadge(count: document.unreadCount, color: .blue)
+                }
+                Button {
+                    store.close(id: document.id)
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.caption.bold())
+                }
+                .buttonStyle(.plain)
+                .opacity(store.selectedID == document.id ? 1 : 0.45)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                store.selectedID == document.id
+                    ? Color.accentColor.opacity(0.12)
+                    : Color.clear,
+                in: RoundedRectangle(cornerRadius: 7)
+            )
+        }
+        .buttonStyle(.plain)
+        .draggable(document.url) {
+            HStack(spacing: 7) {
+                Image(systemName: "doc.text")
+                Text(document.displayName)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        }
+        .contextMenu {
+            Menu("Move to Project Group") {
+                Button("Ungrouped") {
+                    store.assign(document, to: nil)
+                }
+                Divider()
+                ForEach(store.groups) { group in
+                    Button {
+                        store.assign(document, to: group.id)
+                    } label: {
+                        if store.group(for: document)?.id == group.id {
+                            Label(group.name, systemImage: "checkmark")
+                        } else {
+                            Text(group.name)
+                        }
+                    }
+                }
+            }
+            Button("New Group from This Folder…") {
+                store.createGroup(assigning: document)
+            }
+            Divider()
+            Button("Reveal in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([document.url])
+            }
+            Button("Close Tab") {
+                store.close(id: document.id)
+            }
+        }
+    }
+
+    private struct TabReadingBadge: View {
+        let count: Int
+        let color: Color
+        var opacity = 1.0
+
+        var body: some View {
+            Text("\(count)")
+                .font(.system(size: 9, weight: .bold, design: .rounded))
+                .foregroundStyle(color)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(color.opacity(0.14), in: Capsule())
+                .opacity(opacity)
+        }
+    }
+}
