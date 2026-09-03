@@ -1,0 +1,72 @@
+# marc parity manifest
+#
+# macOS is the source of truth. This file maps every file in the Windows port
+# to the macOS sources it was ported from, so that a change on the Mac side can
+# be turned into a concrete, reviewable porting task instead of a memory test.
+#
+# scripts/check-parity.sh reads this file. For each row it finds the last commit
+# that touched the Windows file, then lists the commits after that one which
+# touched any of its macOS sources. Those commits are the unported work.
+#
+# Format, one row per Windows file:
+#
+#   <windows path><TAB><macOS source>[,<macOS source>...]
+#
+# Use "-" as the source list for a file that deliberately has no macOS
+# counterpart, and give the reason in a comment above it. Every file under
+# Sources/ must appear as a source in at least one row, or the checker reports
+# it as unmapped: that is how a newly added macOS file announces itself.
+
+# ------------------------------------------------------------------- core
+
+windows/src/core/parser.js	Sources/MarcCore/MarkdownParser.swift
+windows/src/core/attention.js	Sources/MarcCore/AttentionAnalysis.swift
+
+# No counterpart by design. macOS uses Apple's NLEmbedding; Windows has no
+# reviewed offline sentence model, so this is a bundled lexical embedder.
+# See ON-DEMAND-ATTENTION-ANALYSIS-SPEC.md and the file's own header.
+windows/src/core/embedding.js	-
+
+# ------------------------------------------------------------------ models
+
+windows/src/renderer/models.js	Sources/Marc/Models.swift
+windows/src/renderer/store.js	Sources/Marc/DocumentStore.swift,Sources/Marc/AttentionController.swift
+
+# ------------------------------------------------------------------- views
+
+windows/src/renderer/app.js	Sources/Marc/WorkspaceView.swift,Sources/Marc/DocumentWorkspaceView.swift
+windows/src/renderer/render.js	Sources/Marc/DocumentWorkspaceView.swift
+windows/src/renderer/inline.js	Sources/Marc/DocumentWorkspaceView.swift
+windows/src/renderer/sidebars.js	Sources/Marc/SidebarViews.swift
+windows/src/renderer/attention-ui.js	Sources/Marc/AttentionController.swift,Sources/Marc/AttentionPanel.swift
+
+# The chrome stylesheet stands in for styling decisions spread across every
+# SwiftUI view, so this is the noisiest row in the manifest on purpose: a view
+# change is the moment the two builds are most likely to drift visually.
+windows/src/renderer/styles.css	Sources/Marc/WorkspaceView.swift,Sources/Marc/DocumentWorkspaceView.swift,Sources/Marc/SidebarViews.swift,Sources/Marc/AttentionPanel.swift,Sources/Marc/Models.swift
+
+# No counterpart by design. Stands in for SF Symbols, NSMenu, SwiftUI popovers,
+# and NSAlert, which macOS gets from the system. Adding an icon to a view on
+# macOS may still mean adding a path here.
+windows/src/renderer/ui.js	-
+
+# ------------------------------------------------------------- app shell
+
+windows/src/main/main.js	Sources/Marc/MarcApp.swift,AppBundle/Info.plist
+
+# No counterpart by design. Electron needs an explicit renderer/main bridge;
+# a SwiftUI app has no equivalent boundary.
+windows/src/main/preload.js	-
+
+# ----------------------------------------------------------------- checks
+
+windows/src/checks/checks.js	Sources/MarcChecks/main.swift
+
+# No counterpart yet. The macOS build has no equivalent UI-level suite; this
+# covers rendering, persistence, and conflict handling in the real renderer.
+windows/src/renderer/selftest.js	-
+
+# ------------------------------------------------------------- packaging
+
+windows/scripts/generate-icon.js	scripts/generate-icon.swift
+windows/package.json	AppBundle/Info.plist

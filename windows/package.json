@@ -1,0 +1,90 @@
+{
+  "name": "marc",
+  "productName": "marc",
+  "version": "0.1.0",
+  "description": "A calmer way to read what agents write.",
+  "main": "src/main/main.js",
+  "author": "marc",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "checks": "node src/checks/checks.js",
+    "selftest": "electron . --self-test",
+    "test": "npm run checks && npm run selftest",
+    "icon": "electron scripts/generate-icon.js",
+    "dist": "npm run icon && electron-builder --win portable nsis --publish never",
+    "pack": "npm run icon && electron-builder --win dir --publish never"
+  },
+  "devDependencies": {
+    "electron": "^40.0.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.jpineda.marc",
+    "productName": "marc",
+    "copyright": "marc",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "package.json",
+      "!**/*.map"
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "marc"
+    },
+    "fileAssociations": [
+      {
+        "ext": "md",
+        "name": "Markdown Document",
+        "description": "Markdown Document",
+        "mimeType": "text/markdown",
+        "icon": "build/icon.ico",
+        "role": "Editor"
+      },
+      {
+        "ext": "markdown",
+        "name": "Markdown Document",
+        "description": "Markdown Document",
+        "mimeType": "text/markdown",
+        "icon": "build/icon.ico",
+        "role": "Editor"
+      },
+      {
+        "ext": "mdown",
+        "name": "Markdown Document",
+        "description": "Markdown Document",
+        "mimeType": "text/markdown",
+        "icon": "build/icon.ico",
+        "role": "Editor"
+      },
+      {
+        "ext": "mkd",
+        "name": "Markdown Document",
+        "description": "Markdown Document",
+        "mimeType": "text/markdown",
+        "icon": "build/icon.ico",
+        "role": "Editor"
+      }
+    ]
+  }
+}
