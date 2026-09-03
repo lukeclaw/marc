@@ -144,6 +144,7 @@ function buildMenu() {
     {
       label: "&File",
       submenu: [
+        { label: "New Markdown File…", accelerator: "CommandOrControl+N", click: command("new") },
         { label: "Open…", accelerator: "CommandOrControl+O", click: command("open") },
         { label: "Save", accelerator: "CommandOrControl+S", click: command("save") },
         { type: "separator" },
@@ -412,6 +413,41 @@ function registerIPC() {
       ]
     });
     return result.canceled ? [] : result.filePaths;
+  });
+
+  // Port of the NSSavePanel in DocumentStore.newDocument.
+  ipcMain.handle("marc:save-dialog", async (event, options) => {
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: "New Markdown File",
+      buttonLabel: "Create",
+      defaultPath:
+        options.directory === null || options.directory === undefined
+          ? options.suggestedName
+          : path.join(options.directory, options.suggestedName),
+      properties: ["createDirectory", "showOverwriteConfirmation"],
+      filters: [
+        { name: "Markdown", extensions: MARKDOWN_EXTENSIONS },
+        { name: "All Files", extensions: ["*"] }
+      ]
+    });
+    return result.canceled ? null : result.filePath;
+  });
+
+  // Creates the file only when it is missing, so choosing an existing file in
+  // the panel opens it rather than blanking it.
+  ipcMain.handle("marc:create-file", async (event, filePath, content) => {
+    try {
+      await fsp.mkdir(path.dirname(filePath), { recursive: true });
+      try {
+        await fsp.writeFile(filePath, content, { encoding: "utf8", flag: "wx" });
+      } catch (error) {
+        if (error.code !== "EEXIST") throw error;
+      }
+      const stats = await fsp.stat(filePath);
+      return { ok: true, modified: stats.mtimeMs };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
   });
 
   ipcMain.handle("marc:confirm-close", async (event, fileName) => {

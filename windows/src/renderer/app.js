@@ -37,6 +37,7 @@ const App = {
     window.marc.onCommand((payload) => this.handleCommand(payload.name, payload.payload));
 
     this.installWindowDropTarget();
+    this.installTabStripResize();
     this.renderAll();
 
     if (startup.selfTest === true) {
@@ -132,6 +133,7 @@ const App = {
     const hasDocument = document_ !== null;
 
     host.append(
+      this.toolButton("save", "New", "New Markdown file (Ctrl+N)", () => this.store.newDocument()),
       this.toolButton("folder", "Open", "Open Markdown (Ctrl+O)", () => this.store.showOpenPanel())
     );
 
@@ -220,6 +222,103 @@ const App = {
 
   /* ------------------------------------------------------------ tab strip */
 
+  /*
+   * Tab widths are derived from the strip's width, so a resized window has to
+   * re-lay the lanes. Only an actual width change matters; the observer fires
+   * for height too.
+   */
+  installTabStripResize() {
+    const host = document.getElementById("tabstrip");
+    this.tabStripWidth = 0;
+    new ResizeObserver(() => {
+      if (this.store.documents.length === 0) return;
+      if (host.clientWidth === this.tabStripWidth || host.clientWidth === 0) return;
+      this.renderTabStrip();
+    }).observe(host);
+  },
+
+  /*
+   * Browser-style tab lanes. Port of TabStrip, GroupTabSection,
+   * UngroupedTabSection, and TabStripMetrics from WorkspaceView.swift: group
+   * names become titles above their lanes, expanded tabs share the window width
+   * and shrink uniformly, and horizontal scrolling starts only once tabs would
+   * fall below the minimum readable width.
+   */
+  tabStripMetrics(availableWidth) {
+    const groups = this.store.groups.map((group) => ({
+      collapsed: group.isCollapsed === true,
+      count: this.store.groupDocuments(group.id).length
+    }));
+    const ungroupedCount = this.store.groupDocuments(null).length;
+
+    const laneSpacing = 6;
+    const tabSpacing = 2;
+    const horizontalPadding = 16;
+    const addButtonWidth = 34;
+    const collapsedLaneWidth = 124;
+    const emptyLaneWidth = 124;
+    const minimumTabWidth = 72;
+    const maximumTabWidth = 220;
+    const minimumExpandedLaneWidth = 72;
+
+    const visibleTabCount = groups.reduce(
+      (total, group) => total + (group.collapsed ? 0 : group.count),
+      ungroupedCount
+    );
+    const fixedLaneWidth = groups.reduce((total, group) => {
+      if (group.collapsed) return total + collapsedLaneWidth;
+      if (group.count === 0) return total + emptyLaneWidth;
+      return total;
+    }, 0);
+    const laneCount = groups.length + (ungroupedCount > 0 ? 1 : 0) + 1;
+    const totalLaneSpacing = Math.max(0, laneCount - 1) * laneSpacing;
+    const expandedGroupSpacing = groups.reduce(
+      (total, group) => total + (group.collapsed ? 0 : Math.max(0, group.count - 1)),
+      0
+    );
+    const totalTabSpacing = (expandedGroupSpacing + Math.max(0, ungroupedCount - 1)) * tabSpacing;
+
+    let tabWidth = maximumTabWidth;
+    if (visibleTabCount > 0) {
+      const availableForTabs = Math.max(
+        0,
+        availableWidth -
+          horizontalPadding -
+          addButtonWidth -
+          fixedLaneWidth -
+          totalLaneSpacing -
+          totalTabSpacing
+      );
+      tabWidth = Math.min(
+        maximumTabWidth,
+        Math.max(minimumTabWidth, availableForTabs / visibleTabCount)
+      );
+    }
+
+    const laneWidth = (tabCount, collapsed) => {
+      if (collapsed) return collapsedLaneWidth;
+      if (tabCount === 0) return emptyLaneWidth;
+      return Math.max(
+        minimumExpandedLaneWidth,
+        tabCount * tabWidth + Math.max(0, tabCount - 1) * tabSpacing
+      );
+    };
+
+    const groupWidths = groups.reduce(
+      (total, group) => total + laneWidth(group.count, group.collapsed),
+      0
+    );
+    const ungroupedWidth = ungroupedCount > 0 ? laneWidth(ungroupedCount, false) : 0;
+    const requiredContentWidth =
+      horizontalPadding + groupWidths + ungroupedWidth + totalLaneSpacing + addButtonWidth;
+
+    return {
+      tabWidth,
+      laneWidth,
+      requiresScrolling: requiredContentWidth > availableWidth
+    };
+  },
+
   renderTabStrip() {
     const host = UI.clear(document.getElementById("tabstrip"));
     if (this.store.documents.length === 0) {
@@ -228,37 +327,78 @@ const App = {
     }
     host.style.display = "flex";
 
+    // Reading clientWidth after the display change forces the layout the
+    // metrics need. A hidden window can still report 0, so fall back.
+    const available = host.clientWidth > 0 ? host.clientWidth : 960;
+    this.tabStripWidth = available;
+    const metrics = this.tabStripMetrics(available);
+    host.classList.toggle("scrolling", metrics.requiresScrolling);
+
     for (const group of this.store.groups) {
-      host.append(this.renderGroupSection(group));
+      host.append(this.renderGroupSection(group, metrics));
     }
 
     const ungrouped = this.store.groupDocuments(null);
     if (ungrouped.length > 0) {
-      const section = UI.el("div.tab-section.ungrouped");
-      section.append(UI.el("span.ungrouped-label", { text: "UNGROUPED" }));
-      for (const document_ of ungrouped) section.append(this.renderTab(document_));
+      const width = metrics.laneWidth(ungrouped.length, false);
+      const section = UI.el("div.tab-section.ungrouped", {
+        style: { width: `${width}px` },
+        title: "Drag Markdown tabs here to remove their project group"
+      });
+      section.append(
+        UI.el("div.lane-header", null, [
+          UI.el("span.lane-name", { text: "Ungrouped" }),
+          UI.el("span.group-count", { text: String(ungrouped.length) }),
+          UI.el("span.spacer")
+        ])
+      );
+      const lane = UI.el("div.lane-tabs");
+      for (const document_ of ungrouped) lane.append(this.renderTab(document_, metrics.tabWidth));
+      section.append(lane);
       this.installTabDropTarget(section, null);
-      section.title = "Drag Markdown tabs here to remove their project group";
       host.append(section);
     }
 
+    // The macOS control opens the panel on click and offers both actions in its
+    // menu. A single menu is the discoverable equivalent here.
     host.append(
-      UI.el("button.tool-button", {
-        title: "Open another file",
-        on: { click: () => this.store.showOpenPanel() }
-      }, [UI.icon("plus")])
+      UI.el("div.tab-add", null, [
+        UI.el(
+          "button.tool-button",
+          {
+            title: "New or open a file",
+            on: {
+              click: (event) =>
+                UI.menu(
+                  [
+                    { label: "New Markdown File…", action: () => this.store.newDocument() },
+                    { label: "Open Markdown…", action: () => this.store.showOpenPanel() }
+                  ],
+                  event.currentTarget
+                )
+            }
+          },
+          [UI.icon("plus")]
+        )
+      ])
     );
   },
 
-  renderGroupSection(group) {
+  renderGroupSection(group, metrics) {
     const documents = this.store.groupDocuments(group.id);
+    const width = metrics.laneWidth(documents.length, group.isCollapsed === true);
     const section = UI.el("div.tab-section", {
-      style: { background: `color-mix(in srgb, ${group.colorHex} 12%, transparent)` },
+      style: {
+        width: `${width}px`,
+        background: `color-mix(in srgb, ${group.colorHex} 10%, transparent)`
+      },
       title: `Drag Markdown tabs here to move them into ${group.name}`
     });
 
+    section.append(UI.el("div.lane-accent", { style: { background: group.colorHex } }));
+
     const header = UI.el(
-      "button.group-header",
+      "button.lane-header",
       {
         title: group.isCollapsed ? `Expand ${group.name}` : `Collapse ${group.name}`,
         on: {
@@ -268,26 +408,41 @@ const App = {
       },
       [
         UI.el("span.group-dot", { style: { background: group.colorHex } }),
-        UI.el("span", { text: group.name }),
+        UI.el("span.lane-name", { text: group.name }),
         UI.el("span.group-count", { text: String(documents.length) }),
-        UI.icon(group.isCollapsed ? "chevronRight" : "chevronLeft")
+        UI.el("span.spacer"),
+        UI.icon(group.isCollapsed ? "chevronRight" : "chevronDown")
       ]
     );
     section.append(header);
 
-    if (!group.isCollapsed) {
-      for (const document_ of documents) section.append(this.renderTab(document_));
+    if (group.isCollapsed !== true) {
+      const lane = UI.el("div.lane-tabs");
+      for (const document_ of documents) lane.append(this.renderTab(document_, metrics.tabWidth));
+      section.append(lane);
     }
+
     this.installTabDropTarget(section, group.id);
     return section;
   },
 
-  renderTab(document_) {
+  renderTab(document_, width) {
     const selected = this.store.selectedID === document_.id;
+    const compact = width < 132;
+    const veryCompact = width < 96;
+
+    const classes = [
+      selected ? "selected" : "",
+      compact ? "compact" : "",
+      veryCompact ? "very-compact" : "",
+      width >= 150 ? "wide" : ""
+    ].filter((name) => name !== "");
+
     const tab = UI.el(
       "div.tab",
       {
-        class: selected ? "selected" : "",
+        class: classes.join(" "),
+        style: { width: `${width}px` },
         draggable: true,
         title: document_.path,
         on: {
@@ -302,21 +457,23 @@ const App = {
         }
       },
       [
-        UI.icon("doc"),
+        veryCompact ? null : UI.icon("doc"),
         UI.el("span.tab-name", { text: document_.displayName }),
         document_.isDirty ? UI.el("span.dirty-dot") : null,
-        document_.attentionResults.length > 0
-          ? UI.badge(
+        compact || document_.attentionResults.length === 0
+          ? null
+          : UI.badge(
               document_.attentionSuggestionCount,
               "var(--attention)",
               document_.attentionResultsAreStale ? 0.4 : 1
-            )
-          : null,
-        document_.changedCount > 0
-          ? UI.badge(document_.changedCount, "var(--changed)")
-          : document_.unreadCount > 0
-            ? UI.badge(document_.unreadCount, "var(--unread)")
-            : null,
+            ),
+        compact
+          ? null
+          : document_.changedCount > 0
+            ? UI.badge(document_.changedCount, "var(--changed)")
+            : document_.unreadCount > 0
+              ? UI.badge(document_.unreadCount, "var(--unread)")
+              : null,
         UI.el("button.tab-close", {
           title: "Close tab",
           on: {
@@ -725,10 +882,16 @@ const App = {
         UI.el("div.wordmark", { text: "marc" }),
         UI.el("div.tagline", { text: "A calmer way to read what agents write." })
       ]),
-      UI.el("button.primary-button", {
-        text: "Open Markdown…",
-        on: { click: () => this.store.showOpenPanel() }
-      })
+      UI.el("div.welcome-actions", null, [
+        UI.el("button.secondary-button", {
+          text: "New Markdown…",
+          on: { click: () => this.store.newDocument() }
+        }),
+        UI.el("button.primary-button", {
+          text: "Open Markdown…",
+          on: { click: () => this.store.showOpenPanel() }
+        })
+      ])
     );
     welcome.querySelector(".welcome-glyph").style.cssText =
       "width:64px;height:64px;stroke:var(--accent);stroke-width:1.1";
@@ -915,6 +1078,12 @@ const App = {
   openGroupContextMenu(group, event) {
     UI.contextMenuAt(
       [
+        {
+          label: `New File in ${group.name}…`,
+          action: () =>
+            this.store.newDocument(group.folderPath ?? null, group.id)
+        },
+        { separator: true },
         { label: "Rename Group…", action: () => this.promptRenameGroup(group) },
         group.folderPath === null || group.folderPath === undefined
           ? null
@@ -955,6 +1124,14 @@ const App = {
               action: () => this.store.assign(document_, group.id)
             }))
           ]
+        },
+        {
+          label: "New File in This Folder…",
+          action: () =>
+            this.store.newDocument(
+              window.marc.path.dirname(document_.path),
+              this.store.groupFor(document_)?.id ?? null
+            )
         },
         { label: "New Group from This Folder…", action: () => this.promptNewGroup(document_) },
         { separator: true },
@@ -1126,6 +1303,9 @@ const App = {
   async handleCommand(name, payload) {
     const document_ = this.store.selectedDocument;
     switch (name) {
+      case "new":
+        await this.store.newDocument();
+        break;
       case "open":
         await this.store.showOpenPanel();
         break;

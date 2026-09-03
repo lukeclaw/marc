@@ -201,17 +201,28 @@ select {
 
 /* ------------------------------------------------------------ tab strip */
 
+/*
+ * Tab lanes. Port of TabStrip, GroupTabSection, and UngroupedTabSection from
+ * WorkspaceView.swift: each lane is a group title above a row of tabs, lanes
+ * are laid out at widths computed in app.js, and the strip scrolls only once
+ * those widths hit their minimum.
+ */
 .tabstrip {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 6px;
+  height: 70px;
   padding: 5px 8px;
   background: var(--chrome-bar);
   border-bottom: 1px solid var(--chrome-border);
-  overflow-x: auto;
+  overflow-x: hidden;
   overflow-y: hidden;
   flex: none;
   scrollbar-width: thin;
+}
+
+.tabstrip.scrolling {
+  overflow-x: auto;
 }
 
 .tabstrip::-webkit-scrollbar {
@@ -224,16 +235,18 @@ select {
 }
 
 .tab-section {
+  position: relative;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 2px;
-  padding: 3px;
-  border-radius: 9px;
+  padding: 2px;
+  border-radius: 7px;
   flex: none;
 }
 
 .tab-section.ungrouped {
-  background: rgba(128, 132, 142, 0.07);
+  background: rgba(128, 132, 142, 0.05);
 }
 
 .tab-section.drop-target {
@@ -241,18 +254,71 @@ select {
   outline-offset: -1px;
 }
 
-.group-header {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 9px;
-  border-radius: 7px;
-  font-size: 11.5px;
-  font-weight: 700;
+/* The group's colour as a rule across the top of its lane. */
+.lane-accent {
+  position: absolute;
+  top: 0;
+  left: 6px;
+  right: 6px;
+  height: 2px;
+  border-radius: 1px;
+  opacity: 0.75;
 }
 
-.group-header:hover {
+.lane-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--chrome-secondary);
+  min-width: 0;
+}
+
+button.lane-header:hover {
   background: rgba(255, 255, 255, 0.35);
+}
+
+.lane-header .spacer {
+  flex: 1;
+}
+
+.lane-header svg {
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
+
+.lane-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.lane-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tab-add {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: 56px;
+  flex: none;
+}
+
+.tab-add .tool-button {
+  width: 28px;
+  height: 30px;
+  justify-content: center;
+  padding: 0;
 }
 
 .group-dot {
@@ -266,33 +332,39 @@ select {
   font-variant-numeric: tabular-nums;
   font-size: 11px;
   font-weight: 600;
-  color: var(--chrome-secondary);
-}
-
-.ungrouped-label {
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
   color: var(--chrome-tertiary);
-  padding: 0 7px;
+  flex: none;
 }
 
 .tab {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 7px 9px;
-  border-radius: 7px;
-  max-width: 260px;
+  height: 32px;
+  padding: 0 9px;
+  border-radius: 6px;
   color: var(--chrome-secondary);
+  flex: none;
+  min-width: 0;
+}
+
+.tab.compact {
+  gap: 4px;
+  padding: 0 6px;
+}
+
+.tab svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
 }
 
 .tab:hover {
-  background: rgba(128, 132, 142, 0.14);
+  background: rgba(128, 132, 142, 0.055);
 }
 
 .tab.selected {
-  background: var(--accent-soft);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
   color: var(--chrome-text);
 }
 
@@ -304,6 +376,8 @@ select {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
 
 .dirty-dot {
@@ -324,15 +398,25 @@ select {
   line-height: 1.1;
 }
 
+/*
+ * A narrow tab keeps its close button only while it is selected or hovered,
+ * which is what makes the smallest widths still readable.
+ */
 .tab-close {
-  display: inline-flex;
+  display: none;
   align-items: center;
   justify-content: center;
-  width: 16px;
+  width: 12px;
   height: 16px;
   border-radius: 4px;
-  opacity: 0.45;
+  opacity: 0.55;
   flex: none;
+}
+
+.tab.wide .tab-close,
+.tab.selected .tab-close,
+.tab:hover .tab-close {
+  display: inline-flex;
 }
 
 .tab.selected .tab-close {
@@ -342,8 +426,6 @@ select {
 .tab-close:hover {
   background: rgba(128, 132, 142, 0.3);
 }
-
-/* ------------------------------------------------------------ workspace */
 
 .workspace {
   display: flex;
@@ -514,12 +596,39 @@ select {
 
 /* ------------------------------------------------------ reading surface */
 
+/*
+ * Port of ScrollBarAppearanceConfigurator: the document scrollbar stays visible
+ * rather than fading out, and its knob follows the page theme instead of the
+ * app chrome, so a dark theme gets a light knob. The gutter is reserved so text
+ * does not reflow when the bar appears.
+ */
 .preview {
   flex: 1;
   min-width: 0;
   overflow: auto;
   background: var(--page-bg);
   position: relative;
+  scrollbar-gutter: stable;
+}
+
+.preview::-webkit-scrollbar-thumb {
+  background: rgba(60, 64, 74, 0.42);
+  background-clip: content-box;
+}
+
+.preview::-webkit-scrollbar-thumb:hover {
+  background: rgba(60, 64, 74, 0.62);
+  background-clip: content-box;
+}
+
+.preview.dark-surface::-webkit-scrollbar-thumb {
+  background: rgba(226, 230, 238, 0.38);
+  background-clip: content-box;
+}
+
+.preview.dark-surface::-webkit-scrollbar-thumb:hover {
+  background: rgba(226, 230, 238, 0.6);
+  background-clip: content-box;
 }
 
 .preview-page {
@@ -1076,11 +1185,25 @@ select {
   max-width: 100%;
 }
 
+/* A link whose file is missing carries a Create action beside it. */
+.reference-row-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.reference-row-group .link-button.create {
+  flex: none;
+  padding-right: 10px;
+  font-size: 11.5px;
+}
+
 .reference-row {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
+  min-width: 0;
   padding: 6px 10px;
   text-align: left;
 }
@@ -1241,6 +1364,12 @@ select {
 .welcome .tagline {
   font-size: 15px;
   color: var(--chrome-secondary);
+}
+
+.welcome-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
 }
 
 .welcome .hint {

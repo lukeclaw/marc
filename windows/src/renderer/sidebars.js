@@ -216,7 +216,7 @@ const MarcSidebars = (() => {
         {
           class: exists ? "" : "missing",
           title: reference.destination,
-          on: { click: () => store.openReference(reference) }
+          on: { click: () => store.openReference(reference, document_) }
         },
         [
           UI.el("span", { text: reference.label }),
@@ -271,10 +271,10 @@ const MarcSidebars = (() => {
     const body = UI.el("div.sidebar-body.scroll", { style: { maxHeight: "180px", flex: "none" } });
     for (const reference of references) {
       const exists = store.referenceExists(reference);
-      body.append(
+      const row = UI.el("div.reference-row-group", null, [
         UI.el(
           "button.reference-row",
-          { on: { click: () => store.openReference(reference) } },
+          { on: { click: () => store.openReference(reference, document_) } },
           [
             UI.icon(exists ? "doc" : "missing", exists ? "" : "missing"),
             UI.el("span", { style: { minWidth: "0", flex: "1" } }, [
@@ -283,7 +283,22 @@ const MarcSidebars = (() => {
             ])
           ]
         )
-      );
+      ]);
+      if (!exists) {
+        row.append(
+          UI.el("button.link-button.create", {
+            text: "Create",
+            title: `Create ${reference.destination} and open it`,
+            on: {
+              click: (event) => {
+                event.stopPropagation();
+                store.createFileForReference(reference, document_);
+              }
+            }
+          })
+        );
+      }
+      body.append(row);
     }
     panel.append(UI.el("div.pane-divider", { style: { width: "auto", height: "1px" } }), body);
     return panel;

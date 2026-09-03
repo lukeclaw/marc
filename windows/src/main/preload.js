@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld("marc", {
   stat: (filePaths) => ipcRenderer.invoke("marc:stat", filePaths),
   exists: (filePaths) => ipcRenderer.invoke("marc:exists", filePaths),
   openDialog: () => ipcRenderer.invoke("marc:open-dialog"),
+  saveDialog: (options) => ipcRenderer.invoke("marc:save-dialog", options),
+  createFile: (filePath, content) => ipcRenderer.invoke("marc:create-file", filePath, content),
   confirmClose: (fileName) => ipcRenderer.invoke("marc:confirm-close", fileName),
   confirm: (options) => ipcRenderer.invoke("marc:confirm", options),
   reveal: (filePath) => ipcRenderer.invoke("marc:reveal", filePath),

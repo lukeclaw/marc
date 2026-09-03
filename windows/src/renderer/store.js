@@ -410,6 +410,63 @@ class DocumentStore {
     for (const file of files) await this.open(file);
   }
 
+  /* Asks for a location, writes a starter file there, and opens it as a tab. */
+  async newDocument(folder, groupID, suggestedName) {
+    const selected = this.selectedDocument;
+    const directory =
+      folder ?? (selected === null ? null : window.marc.path.dirname(selected.path));
+    const filePath = await window.marc.saveDialog({
+      directory,
+      suggestedName: suggestedName ?? "Untitled.md"
+    });
+    if (filePath === null) return null;
+    return this.createDocument(filePath, groupID);
+  }
+
+  /* Creates the file at `filePath` if it is missing, then opens it. */
+  async createDocument(filePath, groupID) {
+    let target = normalizePath(filePath);
+    const extension = window.marc.path.extname(target).replace(".", "").toLowerCase();
+    if (!MarcModels.MARKDOWN_EXTENSIONS.includes(extension)) target = `${target}.md`;
+
+    const title = window.marc.path.basename(target, window.marc.path.extname(target));
+    const result = await window.marc.createFile(target, `# ${title}\n\n`);
+    if (!result.ok) {
+      this.setError(`Could not create ${window.marc.path.basename(target)}: ${result.error}`);
+      return null;
+    }
+
+    const document = await this.open(target);
+    if (document !== null && groupID !== null && groupID !== undefined) {
+      this.assign(document, groupID);
+    }
+    return document;
+  }
+
+  /*
+   * A Markdown link to a file that does not exist yet is an offer to create it,
+   * which is how a plan that references its own follow-up documents stays
+   * navigable while it is being written.
+   */
+  async offerToCreate(filePath, groupID) {
+    const name = window.marc.path.basename(filePath);
+    const choice = await window.marc.confirm({
+      type: "question",
+      buttons: ["Create File", "Cancel"],
+      message: `Create “${name}”?`,
+      detail: `This link points to a file that does not exist yet in ${window.marc.path.dirname(filePath)}.`
+    });
+    if (choice !== 0) return null;
+    return this.createDocument(filePath, groupID);
+  }
+
+  async openLink(filePath, fromDocument) {
+    const existence = await window.marc.exists([filePath]);
+    if (existence[filePath] === true) return this.open(filePath);
+    const group = fromDocument === undefined ? null : this.groupFor(fromDocument);
+    return this.offerToCreate(filePath, group === null ? null : group.id);
+  }
+
   async open(filePath) {
     const normalized = normalizePath(filePath);
     const key = pathKey(normalized);
@@ -443,14 +500,15 @@ class DocumentStore {
     return document;
   }
 
-  async openReference(reference) {
+  async openReference(reference, fromDocument) {
     if (reference.resolvedPath === null) return;
-    const existence = await window.marc.exists([reference.resolvedPath]);
-    if (existence[reference.resolvedPath] !== true) {
-      this.setError(`Referenced file does not exist: ${reference.destination}`);
-      return;
-    }
-    await this.open(reference.resolvedPath);
+    await this.openLink(reference.resolvedPath, fromDocument);
+  }
+
+  async createFileForReference(reference, fromDocument) {
+    if (reference.resolvedPath === null || reference.resolvedPath === undefined) return null;
+    const group = fromDocument === undefined ? null : this.groupFor(fromDocument);
+    return this.createDocument(reference.resolvedPath, group === null ? null : group.id);
   }
 
   async saveSelected() {

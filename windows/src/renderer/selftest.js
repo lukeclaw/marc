@@ -153,6 +153,39 @@ const MarcSelfTest = (() => {
     );
   }
 
+  /*
+   * Structure assertions pass happily against a broken stylesheet, so this
+   * checks the geometry too: the chrome and the reading surface must actually
+   * fill the window. A dropped rule shows up here and nowhere else.
+   */
+  async function checkWorkspaceLayout() {
+    await openScratch("layout.md", sampleDocument("Layout"));
+
+    const strip = document.getElementById("tabstrip").getBoundingClientRect();
+    assert(strip.height > 40, `The tab strip collapsed to ${strip.height}px`);
+
+    const preview = document.querySelector(".preview").getBoundingClientRect();
+    assert(preview.width > 200, `The reading surface is only ${preview.width}px wide`);
+    assert(preview.height > 200, `The reading surface is only ${preview.height}px tall`);
+    assert(
+      window.innerHeight - preview.bottom < 4,
+      `The reading surface stops ${Math.round(window.innerHeight - preview.bottom)}px above the window bottom`
+    );
+
+    const toc = document.querySelector('[data-panel="toc"] .sidebar.toc').getBoundingClientRect();
+    assert(
+      window.innerHeight - toc.bottom < 4,
+      `The outline stops ${Math.round(window.innerHeight - toc.bottom)}px above the window bottom`
+    );
+    assert(toc.width > 100, `The outline is only ${toc.width}px wide`);
+
+    // Nothing may overflow horizontally into a second scroll axis.
+    assert(
+      document.documentElement.scrollWidth <= window.innerWidth,
+      "The window scrolls horizontally"
+    );
+  }
+
   async function checkViewModes() {
     await openScratch("modes.md", sampleDocument("View Modes"));
 
@@ -322,6 +355,143 @@ const MarcSelfTest = (() => {
     app.toggleTOC();
     flush();
     assert(document.querySelector('[data-panel="toc"]') !== null, "The table of contents did not reopen");
+  }
+
+  async function checkNewDocument() {
+    const target = window.marc.path.join(scratch, "created-by-self-test.md");
+
+    // newDocument() goes through a native save panel, so drive the step below
+    // it, which is what the panel's result calls.
+    const created = await app.store.createDocument(target, null);
+    assert(created !== null, "Creating a document returned nothing");
+    assert(created.path === target, "The created document has the wrong path");
+
+    const onDisk = await window.marc.readFile(target);
+    assert(onDisk.ok, "The new file was not written to disk");
+    assert(
+      onDisk.content === "# created-by-self-test\n\n",
+      `A new file should start with its title heading, got ${JSON.stringify(onDisk.content)}`
+    );
+    assert(app.store.selectedID === created.id, "The new document was not selected");
+
+    // An extension is added when the chosen name has none.
+    const bare = window.marc.path.join(scratch, "no-extension");
+    const withExtension = await app.store.createDocument(bare, null);
+    assert(withExtension.path === `${bare}.md`, "A missing .md extension was not added");
+
+    // Creating over an existing file must open it, never blank it.
+    await window.marc.writeFile(target, "# Existing\n\nKeep me.\n");
+    app.store.documents = [];
+    app.store.selectedID = null;
+    const reopened = await app.store.createDocument(target, null);
+    assert(reopened.content.includes("Keep me."), "Creating over an existing file overwrote it");
+  }
+
+  async function checkNewDocumentJoinsGroup() {
+    const seed = await openScratch("group-seed.md", sampleDocument("Seed"));
+    const group = app.store.createGroup("Created", false, seed);
+    const target = window.marc.path.join(scratch, "created-in-group.md");
+
+    const created = await app.store.createDocument(target, group.id);
+    assert(created !== null, "Creating a document in a group returned nothing");
+    assert(
+      app.store.groupFor(created)?.id === group.id,
+      "A file created in a group was not assigned to it"
+    );
+  }
+
+  async function checkMissingLinkOffersCreation() {
+    const missing = window.marc.path.join(scratch, "not-written-yet.md");
+    const document_ = await openScratch("linking.md", [
+      "# Linking",
+      "",
+      "See [the follow-up](not-written-yet.md).",
+      ""
+    ]);
+
+    const reference = document_.parsed.references[0];
+    assert(reference !== undefined, "The link was not parsed as a reference");
+    assert(reference.resolvedPath === missing, "The link resolved to the wrong path");
+
+    // openLink offers to create; the self test answers the dialog by calling
+    // the same path the "Create File" button does.
+    await app.store.createFileForReference(reference, document_);
+    const existence = await window.marc.exists([missing]);
+    assert(existence[missing] === true, "Creating from a missing link did not write the file");
+    assert(
+      app.store.selectedDocument.path === missing,
+      "Creating from a missing link did not open the new file"
+    );
+
+    // Now that it exists, following the link opens it rather than offering.
+    await app.store.openLink(missing, document_);
+    assert(app.store.selectedDocument.path === missing, "Following an existing link failed");
+  }
+
+  async function checkProportionalTabs() {
+    const wide = app.tabStripMetrics(1200);
+    const narrow = app.tabStripMetrics(400);
+    assert(wide.tabWidth === 220, `An empty strip should offer the maximum tab width, got ${wide.tabWidth}`);
+
+    for (let index = 0; index < 6; index += 1) {
+      await openScratch(`lane-${index}.md`, sampleDocument(`Lane ${index}`));
+    }
+    flush();
+
+    const roomy = app.tabStripMetrics(1600);
+    const tight = app.tabStripMetrics(560);
+    assert(roomy.tabWidth > tight.tabWidth, "Tabs did not shrink as the window narrowed");
+    assert(roomy.tabWidth <= 220, "A tab grew past the maximum width");
+    assert(tight.tabWidth >= 72, "A tab shrank below the minimum readable width");
+    assert(!roomy.requiresScrolling, "A roomy strip should not need scrolling");
+
+    const cramped = app.tabStripMetrics(200);
+    assert(cramped.tabWidth === 72, "A cramped strip should pin tabs to the minimum width");
+    assert(cramped.requiresScrolling, "A cramped strip should scroll");
+
+    // Every tab in a lane shares one width, and the lane is their total.
+    const laneOfThree = roomy.laneWidth(3, false);
+    assert(
+      Math.abs(laneOfThree - (3 * roomy.tabWidth + 2 * 2)) < 0.001,
+      "The lane width does not match its tabs plus spacing"
+    );
+    assert(roomy.laneWidth(4, true) === 124, "A collapsed lane should use the fixed collapsed width");
+
+    const tabs = document.querySelectorAll("#tabstrip .tab");
+    assert(tabs.length === 6, `Expected 6 tabs, found ${tabs.length}`);
+    const widths = new Set([...tabs].map((tab) => tab.style.width));
+    assert(widths.size === 1, "Tabs in the strip were laid out at differing widths");
+
+    const header = document.querySelector("#tabstrip .tab-section.ungrouped .lane-header .lane-name");
+    assert(header !== null, "The ungrouped lane has no title");
+    assert(header.textContent === "Ungrouped", "The ungrouped lane title is wrong");
+  }
+
+  async function checkGroupLaneTitles() {
+    const first = await openScratch("titled-one.md", sampleDocument("Titled One"));
+    const group = app.store.createGroup("Release Plan", false, first);
+    flush();
+
+    const section = document.querySelector("#tabstrip .tab-section");
+    assert(section !== null, "No group lane rendered");
+    assert(
+      section.querySelector(".lane-header .lane-name").textContent === "Release Plan",
+      "The group lane does not show its name as a title"
+    );
+    assert(section.querySelector(".lane-accent") !== null, "The group lane has no colour accent");
+    assert(section.querySelector(".lane-tabs .tab") !== null, "The group lane shows no tabs");
+
+    app.store.toggleGroup(group.id);
+    flush();
+    assert(
+      document.querySelector("#tabstrip .tab-section .lane-tabs") === null,
+      "Collapsing a lane did not hide its tab row"
+    );
+    assert(
+      document.querySelector("#tabstrip .tab-section .lane-header .lane-name").textContent ===
+        "Release Plan",
+      "A collapsed lane lost its title"
+    );
   }
 
   async function checkTabsAndSelection() {
@@ -515,7 +685,7 @@ const MarcSelfTest = (() => {
       "The second document should still be ungrouped"
     );
 
-    const header = document.querySelector("#tabstrip .tab-section .group-header");
+    const header = document.querySelector("#tabstrip .tab-section .lane-header");
     assert(header !== null, "No group header in the tab strip");
     assert(header.textContent.includes("Self Test"), "The group header shows the wrong name");
     assert(
@@ -784,11 +954,17 @@ const MarcSelfTest = (() => {
 
     const checks = [
       ["renders a document", checkRendersDocument],
+      ["workspace fills the window", checkWorkspaceLayout],
       ["rendered, split, and source modes", checkViewModes],
       ["collapsible heading sections", checkHeadingCollapse],
       ["syntax highlighted code blocks", checkSyntaxHighlighting],
       ["table of contents", checkTableOfContents],
       ["tabs and selection", checkTabsAndSelection],
+      ["proportional tab lanes", checkProportionalTabs],
+      ["group lane titles", checkGroupLaneTitles],
+      ["new document creation", checkNewDocument],
+      ["new document joins a group", checkNewDocumentJoinsGroup],
+      ["a missing link offers creation", checkMissingLinkOffersCreation],
       ["edit, save, and dirty state", checkEditSaveAndDirtyState],
       ["autosave", checkAutosave],
       ["external change reload", checkExternalReload],

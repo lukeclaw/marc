@@ -99,6 +99,9 @@ class PreviewView {
     style.setProperty("--page-font", MarcModels.fontStack(theme.fontFamily));
     style.setProperty("--page-size", `${theme.bodySize}px`);
 
+    // Port of preferredScrollerKnobStyle: a dark page gets the light knob.
+    this.element.classList.toggle("dark-surface", isDarkSurface(theme.background.hex));
+
     if (theme.fullWidth === true) {
       this.page.style.width = "100%";
       this.page.style.maxWidth = "none";
@@ -531,7 +534,8 @@ class PreviewView {
     const withoutFragment = destination.split("#")[0] ?? destination;
     const directory = window.marc.path.dirname(this.document.path);
     const resolved = window.marc.path.resolve(window.marc.path.join(directory, withoutFragment));
-    this.store.openReference({ resolvedPath: resolved, destination });
+    // A link to a file that is not there yet offers to create it.
+    this.store.openLink(resolved, this.document);
   }
 
   scrollTo(blockID) {
