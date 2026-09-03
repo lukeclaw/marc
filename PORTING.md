@@ -35,10 +35,23 @@ a release gate. Two other forms are useful:
 ./scripts/check-parity.sh --files          # bare paths, for scripting
 ```
 
-A file stops being reported the moment a commit touches it, whether that commit
-ports the change or deliberately declines it. Porting one side and the other in
-the same commit keeps the report clean, which is the cheapest way to work when a
-change is small enough to do twice at once.
+A file stops being reported the moment a commit touches it. Porting one side and
+the other in the same commit keeps the report clean, which is the cheapest way to
+work when a change is small enough to do twice at once.
+
+When you review a row and conclude the Windows side needs no change, there is no
+commit to record that, so record it in the manifest instead:
+
+```
+# electron-builder already signs via signtool, so the macOS signing script
+# needed no Windows counterpart.
+!reviewed	windows/package.json	4570b12
+```
+
+That revision becomes the row's baseline, so the commits you just dismissed stop
+being reported and anything landing after it still is. Keep the reason above it:
+the line is a decision, and the next person to read the report will want to know
+why those commits were waved through.
 
 `UNMAPPED` is the check that matters most over time: add a new macOS file and the
 manifest keeps saying so until you add a row for it. That is how a new feature
