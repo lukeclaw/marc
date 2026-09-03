@@ -59,12 +59,37 @@ trap 'rm -rf "$TMP"' EXIT
 : >"$TMP/stale"
 : >"$TMP/report"
 : >"$TMP/mapped"
+: >"$TMP/covered"
+: >"$TMP/exempt"
 
 # ------------------------------------------------------------------ manifest
 
 while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
         ''|\#*) continue ;;
+        '!coverage	'*)
+            # !coverage <directory> <find name pattern>
+            rest=${line#*	}
+            directory=${rest%%	*}
+            pattern=${rest#*	}
+            [ "$directory" != "$pattern" ] || {
+                echo "Malformed !coverage row (expected two fields): $line" >&2
+                exit 2
+            }
+            [ -d "$directory" ] || continue
+            find "$directory" -type f -name "$pattern" >>"$TMP/covered"
+            continue
+            ;;
+        '!no-port	'*)
+            # !no-port <path> <reason>
+            rest=${line#*	}
+            echo "${rest%%	*}" >>"$TMP/exempt"
+            continue
+            ;;
+        '!'*)
+            echo "Unknown manifest directive: $line" >&2
+            exit 2
+            ;;
     esac
 
     target=${line%%	*}
@@ -126,9 +151,15 @@ done <"$MANIFEST"
 
 # --------------------------------------------------------- mapping coverage
 
-sort -u "$TMP/mapped" >"$TMP/mapped-sorted"
-find Sources -name '*.swift' | sort >"$TMP/sources"
-unmapped=$(comm -23 "$TMP/sources" "$TMP/mapped-sorted" || true)
+# Without an explicit !coverage directive, scan the Swift sources only.
+if [ ! -s "$TMP/covered" ]; then
+    find Sources -type f -name '*.swift' >>"$TMP/covered"
+fi
+
+# Normalise ./foo and foo to the same path before comparing.
+sed 's|^\./||' "$TMP/covered" | sort -u >"$TMP/covered-sorted"
+{ sed 's|^\./||' "$TMP/mapped"; sed 's|^\./||' "$TMP/exempt"; } | sort -u >"$TMP/accounted"
+unmapped=$(comm -23 "$TMP/covered-sorted" "$TMP/accounted" || true)
 
 if [ -n "$unmapped" ]; then
     {

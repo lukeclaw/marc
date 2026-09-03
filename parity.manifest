@@ -13,9 +13,34 @@
 #   <windows path><TAB><macOS source>[,<macOS source>...]
 #
 # Use "-" as the source list for a file that deliberately has no macOS
-# counterpart, and give the reason in a comment above it. Every file under
-# Sources/ must appear as a source in at least one row, or the checker reports
-# it as unmapped: that is how a newly added macOS file announces itself.
+# counterpart, and give the reason in a comment above it.
+#
+# Two directives control the reverse check, which catches macOS files that
+# nothing ports:
+#
+#   !coverage<TAB><directory><TAB><name pattern>    scan these for coverage
+#   !no-port<TAB><path><TAB><reason>             this one needs no port
+#
+# Anything matched by !coverage that is neither a source in some row nor
+# exempted by !no-port is reported as unmapped. That is how a newly added
+# macOS file announces that it needs a Windows counterpart.
+
+!coverage	Sources	*.swift
+!coverage	scripts	*.sh
+!coverage	scripts	*.swift
+!coverage	AppBundle	*.plist
+
+# The auto-install hooks rebuild and replace marc.app in /Applications. The
+# Windows build is installed by its own NSIS installer, so there is nothing to
+# mirror; the hooks are also shell scripts a Windows clone never runs.
+!no-port	scripts/hooks/auto-install	rebuilds marc.app; Windows uses the NSIS installer
+!no-port	scripts/hooks/post-checkout	macOS-only auto-install hook
+!no-port	scripts/hooks/post-merge	macOS-only auto-install hook
+!no-port	scripts/hooks/post-rewrite	macOS-only auto-install hook
+!no-port	scripts/hooks/pre-push	macOS-only auto-install hook
+
+# Cross-platform tooling: this checker reads the manifest on either side.
+!no-port	scripts/check-parity.sh	the parity checker itself, shared by both builds
 
 # ------------------------------------------------------------------- core
 
@@ -69,4 +94,8 @@ windows/src/renderer/selftest.js	-
 # ------------------------------------------------------------- packaging
 
 windows/scripts/generate-icon.js	scripts/generate-icon.swift
-windows/package.json	AppBundle/Info.plist
+
+# package.json carries on Windows what Info.plist and the build, install, and
+# signing scripts carry on macOS: the bundle identity, the file associations,
+# the packaging targets, and the signing configuration.
+windows/package.json	AppBundle/Info.plist,scripts/build-app.sh,scripts/install-app.sh,scripts/sign-app.sh

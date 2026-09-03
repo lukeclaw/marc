@@ -40,9 +40,21 @@ ports the change or deliberately declines it. Porting one side and the other in
 the same commit keeps the report clean, which is the cheapest way to work when a
 change is small enough to do twice at once.
 
-`UNMAPPED` is the check that matters most over time: add a new file under
-`Sources/` and the manifest will say so until you add a row for it. That is how
-a new feature announces that it needs a Windows counterpart.
+`UNMAPPED` is the check that matters most over time: add a new macOS file and the
+manifest keeps saying so until you add a row for it. That is how a new feature
+announces that it needs a Windows counterpart.
+
+Two directives control which macOS files that check looks at:
+
+```
+!coverage	scripts	*.sh                      scan these files for coverage
+!no-port	scripts/hooks/post-merge	reason    this one needs no port
+```
+
+`!coverage` takes a directory and a `find -name` pattern. `!no-port` exempts one
+path and records why, for macOS-only files such as the auto-install hooks and for
+shared tooling such as the checker itself. Anything matched by `!coverage` that
+is neither a source in some row nor exempted by `!no-port` is reported.
 
 ## Working through the report
 
