@@ -219,6 +219,76 @@ const MarcSelfTest = (() => {
     );
   }
 
+  async function checkSyntaxHighlighting() {
+    const document_ = await openScratch("highlight.md", [
+      "# Highlighting",
+      "",
+      "```swift",
+      "// load the member",
+      "let member: Member = fetchMember(id: 42)",
+      "```",
+      "",
+      "```",
+      "def calculate_total(items):",
+      "    return sum(items)",
+      "```",
+      ""
+    ]);
+
+    const blocks = document.querySelectorAll(".preview .md-code");
+    assert(blocks.length === 2, `Expected 2 code blocks, found ${blocks.length}`);
+
+    const [labelled, unlabelled] = blocks;
+    assert(labelled.querySelector(".language").textContent === "SWIFT", "The language label is wrong");
+    assert(
+      unlabelled.querySelector(".language").textContent === "PYTHON",
+      "An unlabelled block did not get its inferred language label"
+    );
+
+    assert(labelled.querySelector(".tok-keyword").textContent === "let", "No keyword token rendered");
+    assert(labelled.querySelector(".tok-type").textContent === "Member", "No type token rendered");
+    assert(
+      labelled.querySelector(".tok-function").textContent === "fetchMember",
+      "No function token rendered"
+    );
+    assert(labelled.querySelector(".tok-number").textContent === "42", "No number token rendered");
+    assert(
+      labelled.querySelector(".tok-comment").textContent === "// load the member",
+      "No comment token rendered"
+    );
+
+    // The rendered text must still be the source, exactly, tokens and all.
+    const source = document_.parsed.blocks.find((block) => block.kind.type === "code").kind.content;
+    assert(
+      labelled.querySelector("pre code").textContent === source,
+      "Highlighting altered the code block's text"
+    );
+
+    // Highlighting must never execute or inject markup from the document.
+    const hostile = await openScratch("hostile.md", [
+      "# Hostile",
+      "",
+      "```html",
+      '<img src=x onerror="globalThis.__marcSelfTestEscaped = true">',
+      "```",
+      ""
+    ]);
+    assert(hostile !== null, "The hostile fixture did not open");
+    assert(
+      document.querySelector(".preview .md-code img") === null,
+      "A code block rendered document markup as live HTML"
+    );
+    assert(
+      globalThis.__marcSelfTestEscaped === undefined,
+      "A code block executed script from the document"
+    );
+
+    const copy = document.querySelector(".preview .md-code .code-copy");
+    assert(copy !== null, "A code block has no copy control");
+    copy.click();
+    assert(copy.classList.contains("copied"), "The copy control gave no feedback");
+  }
+
   async function checkTableOfContents() {
     const document_ = await openScratch("toc.md", sampleDocument("Outline"));
 
@@ -716,6 +786,7 @@ const MarcSelfTest = (() => {
       ["renders a document", checkRendersDocument],
       ["rendered, split, and source modes", checkViewModes],
       ["collapsible heading sections", checkHeadingCollapse],
+      ["syntax highlighted code blocks", checkSyntaxHighlighting],
       ["table of contents", checkTableOfContents],
       ["tabs and selection", checkTabsAndSelection],
       ["edit, save, and dirty state", checkEditSaveAndDirtyState],

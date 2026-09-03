@@ -10,6 +10,7 @@
 const path = require("path");
 const Parser = require("../core/parser.js");
 const Attention = require("../core/attention.js");
+const Highlight = require("../core/highlight.js");
 
 class CheckFailure extends Error {}
 
@@ -314,6 +315,82 @@ function checkAttentionCancellation() {
   require_(threw, "Attention analysis did not honor cancellation");
 }
 
+function token(needle, source, result) {
+  const location = source.indexOf(needle);
+  if (location < 0) return null;
+  return (
+    result.spans.find((span) => span.location === location && span.length === needle.length) ?? null
+  );
+}
+
+function checkSyntaxHighlighting() {
+  const swiftSource = [
+    "// fetch the current member",
+    "let member: Member = fetchMember(id: 42)",
+    'print("ready")'
+  ].join("\n");
+  const swift = Highlight.highlight(swiftSource, "swift");
+  require_(swift.languageName === "SWIFT", "Swift language alias did not resolve");
+  require_(token("let", swiftSource, swift)?.kind === "keyword", "Swift keyword was not highlighted");
+  require_(token("Member", swiftSource, swift)?.kind === "type", "Swift type was not highlighted");
+  require_(
+    token("fetchMember", swiftSource, swift)?.kind === "function",
+    "Swift function was not highlighted"
+  );
+  require_(token("42", swiftSource, swift)?.kind === "number", "Swift number was not highlighted");
+  require_(token('"ready"', swiftSource, swift)?.kind === "string", "Swift string was not highlighted");
+  require_(
+    token("// fetch the current member", swiftSource, swift)?.kind === "comment",
+    "Swift comment was not highlighted"
+  );
+
+  const pythonSource = 'def greet(name):\n    return f"hello {name}" # greeting';
+  const python = Highlight.highlight(pythonSource, "py");
+  require_(token("def", pythonSource, python)?.kind === "keyword", "Python keyword was not highlighted");
+  require_(
+    token("greet", pythonSource, python)?.kind === "function",
+    "Python function was not highlighted"
+  );
+  require_(
+    token("# greeting", pythonSource, python)?.kind === "comment",
+    "Python comment was not highlighted"
+  );
+
+  const sqlSource = "SELECT member_id, COUNT(*) FROM premium_grants WHERE active = true;";
+  const sql = Highlight.highlight(sqlSource, "trino");
+  require_(
+    token("SELECT", sqlSource, sql)?.kind === "keyword",
+    "SQL keyword matching was not case-insensitive"
+  );
+  require_(token("COUNT", sqlSource, sql)?.kind === "function", "SQL function was not highlighted");
+  require_(token("true", sqlSource, sql)?.kind === "literal", "SQL literal was not highlighted");
+
+  const jsonSource = '{"status": "ready", "count": 3, "enabled": true}';
+  const json = Highlight.highlight(jsonSource, "json");
+  require_(token('"status"', jsonSource, json)?.kind === "property", "JSON key was not highlighted");
+  require_(token('"ready"', jsonSource, json)?.kind === "string", "JSON value was not highlighted");
+  require_(token("3", jsonSource, json)?.kind === "number", "JSON number was not highlighted");
+
+  const inferredSource = "def calculate_total(items):\n    return sum(items)";
+  const inferred = Highlight.highlight(inferredSource, null);
+  require_(inferred.languageName === "PYTHON", "Unlabeled Python was not inferred");
+
+  const expression = "let result = 1-2";
+  const expressionResult = Highlight.highlight(expression, "swift");
+  require_(
+    token("1", expression, expressionResult)?.kind === "number",
+    "First number was not isolated"
+  );
+  require_(
+    token("-", expression, expressionResult)?.kind === "operatorSymbol",
+    "Minus operator was swallowed"
+  );
+  require_(
+    token("2", expression, expressionResult)?.kind === "number",
+    "Second number was not isolated"
+  );
+}
+
 function checkReferences() {
   const base = path.join(path.sep === "\\" ? "C:\\tmp" : "/tmp", "notes", "current.md");
   const resolve = (relative) => path.resolve(path.dirname(base), relative);
@@ -347,6 +424,7 @@ function main() {
     ["attention analysis", checkAttentionAnalysis],
     ["attention stability", checkAttentionStability],
     ["attention cancellation", checkAttentionCancellation],
+    ["syntax highlighting", checkSyntaxHighlighting],
     ["references", checkReferences]
   ];
 

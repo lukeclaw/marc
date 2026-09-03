@@ -711,18 +711,83 @@ select {
   white-space: pre-wrap;
 }
 
+/*
+ * Code blocks and the syntax palette. Port of HighlightedCodeView and
+ * SyntaxPalette from Sources/Marc/DocumentWorkspaceView.swift: the muted set is
+ * for light code backgrounds, the bright set for dark ones, chosen in
+ * render.js by the same 0.45 luminance threshold the macOS build uses.
+ */
 .md-code {
   padding: 14px;
   border-radius: 8px;
   background: var(--page-code-bg);
+  border: 1px solid color-mix(in srgb, var(--page-quote) 16%, transparent);
+
+  --tok-comment: #64727d;
+  --tok-string: #2b8a3e;
+  --tok-number: #d9480f;
+  --tok-keyword: #8f3bb8;
+  --tok-type: #1769aa;
+  --tok-function: #6f42c1;
+  --tok-property: #9c6500;
+  --tok-annotation: #c2255c;
+  --tok-literal: #c92a2a;
+  --tok-operatorSymbol: #087f8c;
+}
+
+.md-code.dark-surface {
+  --tok-comment: #7f8c98;
+  --tok-string: #a8e66b;
+  --tok-number: #ff9d65;
+  --tok-keyword: #d89cff;
+  --tok-type: #73d0ff;
+  --tok-function: #ffd866;
+  --tok-property: #ffcb6b;
+  --tok-annotation: #ff7ab2;
+  --tok-literal: #ff6188;
+  --tok-operatorSymbol: #78dce8;
+}
+
+.md-code .code-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
 }
 
 .md-code .language {
   font-size: 10.5px;
   font-weight: 700;
   letter-spacing: 0.06em;
+  color: var(--tok-keyword);
+}
+
+.md-code .spacer {
+  flex: 1;
+}
+
+.md-code .code-copy {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-size: 11.5px;
   color: var(--page-quote);
-  margin-bottom: 8px;
+  cursor: pointer;
+}
+
+.md-code .code-copy svg {
+  width: 13px;
+  height: 13px;
+}
+
+.md-code .code-copy:hover {
+  background: color-mix(in srgb, var(--page-quote) 14%, transparent);
+}
+
+.md-code .code-copy.copied {
+  color: var(--tok-string);
 }
 
 .md-code pre {
@@ -733,6 +798,51 @@ select {
   user-select: text;
   -webkit-user-select: text;
   line-height: 1.5;
+}
+
+.md-code .tok-comment {
+  color: var(--tok-comment);
+  font-style: italic;
+}
+
+.md-code .tok-string {
+  color: var(--tok-string);
+}
+
+.md-code .tok-number {
+  color: var(--tok-number);
+}
+
+.md-code .tok-property {
+  color: var(--tok-property);
+}
+
+.md-code .tok-annotation {
+  color: var(--tok-annotation);
+}
+
+.md-code .tok-literal {
+  color: var(--tok-literal);
+}
+
+.md-code .tok-operatorSymbol {
+  color: var(--tok-operatorSymbol);
+}
+
+/* Keywords, types, and functions also carry the medium weight macOS gives them. */
+.md-code .tok-keyword {
+  color: var(--tok-keyword);
+  font-weight: 500;
+}
+
+.md-code .tok-type {
+  color: var(--tok-type);
+  font-weight: 500;
+}
+
+.md-code .tok-function {
+  color: var(--tok-function);
+  font-weight: 500;
 }
 
 .md-rule {

@@ -10,6 +10,41 @@ const READING_LINE_FRACTION = 0.55;
 const READING_DWELL = 650;
 const DEFAULT_COLUMN_WIDTH = 180;
 const MINIMUM_COLUMN_WIDTH = 140;
+const COPY_FEEDBACK = 1300;
+const DARK_SURFACE_LUMINANCE = 0.45;
+
+/*
+ * Split the source into alternating plain and highlighted runs. Spans arrive in
+ * order and never overlap, and anything the scanner skipped stays plain.
+ */
+function codePieces(source, spans) {
+  const pieces = [];
+  let cursor = 0;
+  for (const span of spans) {
+    if (span.location < cursor || span.length <= 0) continue;
+    if (span.location + span.length > source.length) continue;
+    if (span.location > cursor) {
+      pieces.push({ text: source.slice(cursor, span.location), kind: null });
+    }
+    pieces.push({
+      text: source.slice(span.location, span.location + span.length),
+      kind: span.kind
+    });
+    cursor = span.location + span.length;
+  }
+  if (cursor < source.length) pieces.push({ text: source.slice(cursor), kind: null });
+  return pieces;
+}
+
+/* Relative luminance, matching the macOS palette's 0.45 sRGB threshold. */
+function isDarkSurface(hex) {
+  const value = hex.replace("#", "");
+  if (value.length !== 6) return false;
+  const red = parseInt(value.slice(0, 2), 16) / 255;
+  const green = parseInt(value.slice(2, 4), 16) / 255;
+  const blue = parseInt(value.slice(4, 6), 16) / 255;
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue < DARK_SURFACE_LUMINANCE;
+}
 
 class PreviewView {
   constructor(store, document_, options) {
@@ -23,6 +58,7 @@ class PreviewView {
     this.highlightTarget = null;
     this.highlightTimer = null;
     this.scrollFrame = null;
+    this.copyTimers = new Map();
 
     this.element = UI.el("div.preview.scroll");
     this.page = UI.el("div.preview-page");
@@ -45,6 +81,8 @@ class PreviewView {
     if (this.readingTimer !== null) clearTimeout(this.readingTimer);
     if (this.highlightTimer !== null) clearTimeout(this.highlightTimer);
     if (this.scrollFrame !== null) cancelAnimationFrame(this.scrollFrame);
+    for (const timer of this.copyTimers.values()) clearTimeout(timer);
+    this.copyTimers.clear();
   }
 
   /* --------------------------------------------------------------- layout */
@@ -203,12 +241,51 @@ class PreviewView {
 
   renderCode(kind, theme) {
     const size = Math.max(12, theme.bodySize - 2);
-    return UI.el("div.md-code", null, [
-      kind.language === null ? null : UI.el("div.language", { text: kind.language.toUpperCase() }),
-      UI.el("pre.scroll", { style: { fontSize: `${size}px` } }, [
-        UI.el("code", { text: kind.content })
-      ])
+    const highlighted = MarcHighlight.highlight(kind.content, kind.language);
+
+    const code = UI.el("code");
+    for (const piece of codePieces(kind.content, highlighted.spans)) {
+      if (piece.kind === null) {
+        code.append(piece.text);
+        continue;
+      }
+      code.append(UI.el(`span.tok-${piece.kind}`, { text: piece.text }));
+    }
+
+    const copy = UI.el("button.code-copy", { title: "Copy this code block" }, [
+      UI.icon("doc"),
+      UI.el("span", { text: "Copy" })
     ]);
+    copy.addEventListener("click", () => {
+      window.marc.copy(kind.content);
+      UI.clear(copy).append(UI.icon("check"), UI.el("span", { text: "Copied" }));
+      copy.classList.add("copied");
+      if (this.copyTimers.has(copy)) clearTimeout(this.copyTimers.get(copy));
+      this.copyTimers.set(
+        copy,
+        setTimeout(() => {
+          this.copyTimers.delete(copy);
+          if (!copy.isConnected) return;
+          UI.clear(copy).append(UI.icon("doc"), UI.el("span", { text: "Copy" }));
+          copy.classList.remove("copied");
+        }, COPY_FEEDBACK)
+      );
+    });
+
+    // The palette follows the page theme's code background, so a dark theme
+    // gets the bright token colours and a light one the muted set.
+    const node = UI.el("div.md-code", {
+      class: isDarkSurface(theme.codeBackground.hex) ? "dark-surface" : ""
+    });
+    node.append(
+      UI.el("div.code-header", null, [
+        UI.el("span.language", { text: highlighted.languageName ?? "" }),
+        UI.el("span.spacer"),
+        copy
+      ]),
+      UI.el("pre.scroll", { style: { fontSize: `${size}px` } }, [code])
+    );
+    return node;
   }
 
   /* --------------------------------------------------------------- tables */

@@ -46,6 +46,7 @@
 
 windows/src/core/parser.js	Sources/MarcCore/MarkdownParser.swift
 windows/src/core/attention.js	Sources/MarcCore/AttentionAnalysis.swift
+windows/src/core/highlight.js	Sources/MarcCore/SyntaxHighlighter.swift
 
 # No counterpart by design. macOS uses Apple's NLEmbedding; Windows has no
 # reviewed offline sentence model, so this is a bundled lexical embedder.
