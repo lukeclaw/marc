@@ -15,6 +15,11 @@ struct MarcApp: App {
         .windowToolbarStyle(.unified)
         .commands {
             CommandGroup(replacing: .newItem) {
+                Button("New Markdown File…") {
+                    store.newDocument()
+                }
+                .keyboardShortcut("n")
+
                 Button("Open…") {
                     store.showOpenPanel()
                 }

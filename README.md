@@ -8,6 +8,7 @@ Electron port of the same product.
 
 - Native `.md` document registration, suitable for use as the default Markdown app
 - Rendered, source, and split views
+- New Markdown files from the File menu (⌘N), toolbar, welcome screen, tab bar, project group, or a missing link
 - Per-file themes stored without changing the Markdown file
 - Collapsible heading sections
 - Navigable table of contents on either side
@@ -18,6 +19,9 @@ Electron port of the same product.
 - Automatic restoration of open tabs, tab order, selection, groups, and per-file view state
 - Persistent unread and externally updated passage tracking with UI-only navigation
 - Click-triggered local attention suggestions for urgent, important, and review-worthy passages
+- Rich built-in syntax highlighting for common fenced-code languages, with safe language inference
+- Browser-style proportional tabs with group titles above each tab lane
+- Persistent high-contrast document scrollbars for light and dark themes
 - Linked-Markdown graph, closed by default
 - Automatic refresh when an external tool or AI agent changes an open file
 - Local Markdown link and wiki-link navigation
@@ -33,6 +37,27 @@ open ./dist/marc.app
 ```
 
 The release script builds a universal Apple Silicon and Intel app.
+
+To build and replace the copy in `/Applications` (the one the Dock launches):
+
+```sh
+./scripts/install-app.sh
+```
+
+It quits a running marc first. Set `MARC_INSTALL_DIR` to install somewhere else.
+
+## Rebuild automatically on pull and push
+
+Committed git hooks in `scripts/hooks` run `install-app.sh` after a merge,
+rebase, or branch checkout, and before a push. Enable them once per clone:
+
+```sh
+git config core.hooksPath scripts/hooks
+```
+
+The hooks skip the build when `HEAD` has not moved since the last install and
+nothing under `Sources`, `scripts`, `AppBundle`, or `Package.swift` is modified.
+Set `MARC_SKIP_AUTO_INSTALL=1` for a single git command to skip them entirely.
 
 For development:
 

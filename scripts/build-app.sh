@@ -18,6 +18,6 @@ iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/marc.icns"
 lipo -create "$ARM_BINARY" "$INTEL_BINARY" -output "$APP_BINARY"
 cp "$ROOT/AppBundle/Info.plist" "$APP/Contents/Info.plist"
 chmod +x "$APP_BINARY"
-codesign --force --deep --sign - "$APP"
+"$ROOT/scripts/sign-app.sh" "$APP"
 
 printf 'Built %s\n' "$APP"

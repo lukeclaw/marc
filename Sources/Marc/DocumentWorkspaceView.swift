@@ -263,6 +263,11 @@ struct MarkdownPreview: View {
                     .padding(.top, 36)
                     .padding(.bottom, max(36, viewport.size.height * 0.45))
                     .frame(maxWidth: .infinity, alignment: .top)
+                    .background {
+                        ScrollBarAppearanceConfigurator(
+                            knobStyle: preferredScrollerKnobStyle
+                        )
+                    }
                 }
                 .coordinateSpace(name: readingCoordinateSpace)
                 .background(theme.background.color)
@@ -285,11 +290,8 @@ struct MarkdownPreview: View {
             readingTask?.cancel()
         }
         .environment(\.openURL, OpenURLAction { url in
-            if ["md", "markdown", "mdown", "mkd"].contains(url.pathExtension.lowercased()) {
-                let resolved = url.isFileURL
-                    ? url
-                    : document.url.deletingLastPathComponent().appendingPathComponent(url.relativePath)
-                store.open(url: resolved)
+            if DocumentStore.markdownExtensions.contains(url.pathExtension.lowercased()) {
+                store.openLink(url, from: document)
                 return .handled
             }
             return .systemAction
@@ -306,6 +308,15 @@ struct MarkdownPreview: View {
         } else {
             document.preferences.collapsedHeadingIDs.insert(id)
         }
+    }
+
+    private var preferredScrollerKnobStyle: NSScroller.KnobStyle {
+        let color = NSColor(theme.background.color).usingColorSpace(.sRGB) ?? .white
+        let luminance =
+            0.2126 * color.redComponent +
+            0.7152 * color.greenComponent +
+            0.0722 * color.blueComponent
+        return luminance > 0.55 ? .dark : .light
     }
 
     private func updateReadingCandidate(frames: [String: CGRect], viewportHeight: CGFloat) {
@@ -335,6 +346,55 @@ struct MarkdownPreview: View {
             try? await Task.sleep(for: .milliseconds(650))
             guard !Task.isCancelled, readingCandidateID == candidate else { return }
             document.markBlockRead(candidate)
+        }
+    }
+}
+
+private struct ScrollBarAppearanceConfigurator: NSViewRepresentable {
+    let knobStyle: NSScroller.KnobStyle
+
+    func makeNSView(context: Context) -> ScrollBarProbeView {
+        ScrollBarProbeView(knobStyle: knobStyle)
+    }
+
+    func updateNSView(_ nsView: ScrollBarProbeView, context: Context) {
+        nsView.knobStyle = knobStyle
+        nsView.configureScroller()
+    }
+}
+
+private final class ScrollBarProbeView: NSView {
+    var knobStyle: NSScroller.KnobStyle
+
+    init(knobStyle: NSScroller.KnobStyle) {
+        self.knobStyle = knobStyle
+        super.init(frame: .zero)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        configureScroller()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        configureScroller()
+    }
+
+    func configureScroller() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let scrollView = self.enclosingScrollView else { return }
+            scrollView.hasVerticalScroller = true
+            scrollView.autohidesScrollers = false
+            scrollView.scrollerStyle = .overlay
+            scrollView.verticalScroller?.knobStyle = self.knobStyle
+            scrollView.verticalScroller?.alphaValue = 1
+            scrollView.flashScrollers()
         }
     }
 }
@@ -494,22 +554,7 @@ struct MarkdownBlockView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
         case let .code(language, content):
-            VStack(alignment: .leading, spacing: 8) {
-                if let language {
-                    Text(language.uppercased())
-                        .font(.caption2.bold())
-                        .foregroundStyle(theme.quote.color)
-                }
-                ScrollView(.horizontal) {
-                    Text(content)
-                        .font(.system(size: max(12, theme.bodySize - 2), design: .monospaced))
-                        .foregroundStyle(theme.text.color)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: true, vertical: false)
-                }
-            }
-            .padding(14)
-            .background(theme.codeBackground.color, in: RoundedRectangle(cornerRadius: 8))
+            HighlightedCodeView(content: content, language: language, theme: theme)
             .frame(maxWidth: .infinity, alignment: .leading)
 
         case .horizontalRule:
@@ -555,6 +600,170 @@ struct MarkdownBlockView: View {
         default: (scale, weight) = (1.02, .semibold)
         }
         return .custom(theme.fontFamily, size: theme.bodySize * scale).weight(weight)
+    }
+}
+
+private struct HighlightedCodeView: View {
+    let content: String
+    let language: String?
+    let theme: MarkdownTheme
+    let highlighted: SyntaxHighlightResult
+    @State private var copied = false
+
+    init(content: String, language: String?, theme: MarkdownTheme) {
+        self.content = content
+        self.language = language
+        self.theme = theme
+        self.highlighted = SyntaxHighlighter.highlight(content, language: language)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                if let languageName = highlighted.languageName {
+                    Text(languageName)
+                        .font(.caption2.bold())
+                        .foregroundStyle(palette.keyword)
+                }
+                Spacer()
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(content, forType: .string)
+                    copied = true
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(1.3))
+                        copied = false
+                    }
+                } label: {
+                    Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(copied ? palette.string : theme.quote.color)
+            }
+
+            ScrollView(.horizontal, showsIndicators: true) {
+                Text(attributedCode)
+                    .font(.system(size: max(12, theme.bodySize - 2), design: .monospaced))
+                    .lineSpacing(3)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+        }
+        .padding(14)
+        .background(theme.codeBackground.color, in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(theme.quote.color.opacity(0.16), lineWidth: 1)
+        }
+    }
+
+    private var attributedCode: AttributedString {
+        let attributed = NSMutableAttributedString(string: content)
+        let fullRange = NSRange(location: 0, length: attributed.length)
+        attributed.addAttributes(
+            [
+                .foregroundColor: NSColor(palette.plain),
+                .font: NSFont.monospacedSystemFont(
+                    ofSize: max(12, theme.bodySize - 2),
+                    weight: .regular
+                )
+            ],
+            range: fullRange
+        )
+
+        for span in highlighted.spans {
+            guard span.location >= 0, span.length > 0, span.location + span.length <= attributed.length else {
+                continue
+            }
+            var attributes: [NSAttributedString.Key: Any] = [
+                .foregroundColor: NSColor(palette.color(for: span.kind))
+            ]
+            if span.kind == .comment {
+                attributes[.font] = NSFontManager.shared.convert(
+                    NSFont.monospacedSystemFont(
+                        ofSize: max(12, theme.bodySize - 2),
+                        weight: .regular
+                    ),
+                    toHaveTrait: .italicFontMask
+                )
+            } else if span.kind == .keyword || span.kind == .type || span.kind == .function {
+                attributes[.font] = NSFont.monospacedSystemFont(
+                    ofSize: max(12, theme.bodySize - 2),
+                    weight: .medium
+                )
+            }
+            attributed.addAttributes(
+                attributes,
+                range: NSRange(location: span.location, length: span.length)
+            )
+        }
+        return AttributedString(attributed)
+    }
+
+    private var palette: SyntaxPalette {
+        SyntaxPalette(theme: theme)
+    }
+}
+
+private struct SyntaxPalette {
+    let plain: Color
+    let comment: Color
+    let string: Color
+    let number: Color
+    let keyword: Color
+    let type: Color
+    let function: Color
+    let property: Color
+    let annotation: Color
+    let literal: Color
+    let operatorSymbol: Color
+
+    init(theme: MarkdownTheme) {
+        let background = NSColor(theme.codeBackground.color).usingColorSpace(.sRGB) ?? .black
+        let luminance =
+            0.2126 * background.redComponent +
+            0.7152 * background.greenComponent +
+            0.0722 * background.blueComponent
+        plain = theme.text.color
+        if luminance < 0.45 {
+            comment = Color(hex: "#7F8C98")
+            string = Color(hex: "#A8E66B")
+            number = Color(hex: "#FF9D65")
+            keyword = Color(hex: "#D89CFF")
+            type = Color(hex: "#73D0FF")
+            function = Color(hex: "#FFD866")
+            property = Color(hex: "#FFCB6B")
+            annotation = Color(hex: "#FF7AB2")
+            literal = Color(hex: "#FF6188")
+            operatorSymbol = Color(hex: "#78DCE8")
+        } else {
+            comment = Color(hex: "#64727D")
+            string = Color(hex: "#2B8A3E")
+            number = Color(hex: "#D9480F")
+            keyword = Color(hex: "#8F3BB8")
+            type = Color(hex: "#1769AA")
+            function = Color(hex: "#6F42C1")
+            property = Color(hex: "#9C6500")
+            annotation = Color(hex: "#C2255C")
+            literal = Color(hex: "#C92A2A")
+            operatorSymbol = Color(hex: "#087F8C")
+        }
+    }
+
+    func color(for kind: SyntaxTokenKind) -> Color {
+        switch kind {
+        case .comment: comment
+        case .string: string
+        case .number: number
+        case .keyword: keyword
+        case .type: type
+        case .function: function
+        case .property: property
+        case .annotation: annotation
+        case .literal: literal
+        case .operatorSymbol: operatorSymbol
+        }
     }
 }
 

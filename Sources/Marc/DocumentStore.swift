@@ -369,6 +369,82 @@ final class DocumentStore: ObservableObject {
         }
     }
 
+    static let markdownExtensions = ["md", "markdown", "mdown", "mkd"]
+
+    /// Asks for a location, writes a starter file there, and opens it as a tab.
+    func newDocument(in folder: URL? = nil, groupID: UUID? = nil, suggestedName: String = "Untitled.md") {
+        let panel = NSSavePanel()
+        panel.title = "New Markdown File"
+        panel.prompt = "Create"
+        panel.nameFieldLabel = "File name:"
+        panel.nameFieldStringValue = suggestedName
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        panel.allowedContentTypes = [UTType(filenameExtension: "md"), .plainText].compactMap { $0 }
+        if let folder {
+            panel.directoryURL = folder
+        } else if let current = selectedDocument?.url.deletingLastPathComponent() {
+            panel.directoryURL = current
+        }
+        panel.begin { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { @MainActor in self?.createDocument(at: url, groupID: groupID) }
+        }
+    }
+
+    /// Creates the file at `url` if it is missing, then opens it.
+    @discardableResult
+    func createDocument(at url: URL, groupID: UUID? = nil) -> Bool {
+        var target = url.standardizedFileURL
+        if !Self.markdownExtensions.contains(target.pathExtension.lowercased()) {
+            target.appendPathExtension("md")
+        }
+
+        if !FileManager.default.fileExists(atPath: target.path) {
+            let title = target.deletingPathExtension().lastPathComponent
+            do {
+                try FileManager.default.createDirectory(
+                    at: target.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try "# \(title)\n\n".write(to: target, atomically: true, encoding: .utf8)
+            } catch {
+                errorMessage = "Could not create \(target.lastPathComponent): \(error.localizedDescription)"
+                return false
+            }
+        }
+
+        open(url: target)
+        if let groupID, let document = documents.first(where: { $0.url == target }) {
+            assign(document, to: groupID)
+        }
+        return true
+    }
+
+    /// Opens a Markdown link, offering to create the file when it does not exist yet.
+    func openLink(_ url: URL, from document: MarkdownDocument) {
+        let resolved = url.isFileURL
+            ? url.standardizedFileURL
+            : document.url.deletingLastPathComponent()
+                .appendingPathComponent(url.relativePath)
+                .standardizedFileURL
+        if FileManager.default.fileExists(atPath: resolved.path) {
+            open(url: resolved)
+        } else {
+            offerToCreate(at: resolved, groupID: group(for: document)?.id)
+        }
+    }
+
+    private func offerToCreate(at url: URL, groupID: UUID? = nil) {
+        let alert = NSAlert()
+        alert.messageText = "Create “\(url.lastPathComponent)”?"
+        alert.informativeText = "This link points to a file that does not exist yet in \(url.deletingLastPathComponent().path)."
+        alert.addButton(withTitle: "Create File")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        createDocument(at: url, groupID: groupID)
+    }
+
     func open(url: URL) {
         let normalized = url.standardizedFileURL
         if let existing = documents.first(where: { $0.url == normalized }) {
@@ -398,13 +474,18 @@ final class DocumentStore: ObservableObject {
         }
     }
 
-    func open(reference: MarkdownReference) {
+    func open(reference: MarkdownReference, in document: MarkdownDocument? = nil) {
         guard let url = reference.resolvedURL else { return }
         guard reference.exists else {
-            errorMessage = "Referenced file does not exist: \(reference.destination)"
+            offerToCreate(at: url, groupID: document.flatMap { group(for: $0)?.id })
             return
         }
         open(url: url)
+    }
+
+    func createFile(for reference: MarkdownReference, in document: MarkdownDocument? = nil) {
+        guard let url = reference.resolvedURL else { return }
+        createDocument(at: url, groupID: document.flatMap { group(for: $0)?.id })
     }
 
     func saveSelected() {
