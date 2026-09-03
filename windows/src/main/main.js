@@ -17,6 +17,15 @@ const { execFile } = require("child_process");
 const MARKDOWN_EXTENSIONS = ["md", "markdown", "mdown", "mkd"];
 const SELF_TEST = process.argv.includes("--self-test");
 
+/*
+ * Windows identifies an app by its Application User Model ID, and the installer
+ * stamps this same id on the shortcuts it creates. Without it the running
+ * window is not recognised as the pinned app: the taskbar shows a second,
+ * generic Electron entry instead of lighting up the pin. It must match the
+ * appId in package.json, and must be set before the first window opens.
+ */
+app.setAppUserModelId("com.jpineda.marc");
+
 // A self-test run must never touch the real profile and must never outlive its
 // budget: a renderer that throws before reporting used to hang the run forever.
 const SELF_TEST_TIMEOUT = 120000;
