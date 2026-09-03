@@ -290,7 +290,7 @@ struct ReferenceGraphView: View {
                                 exists: reference.exists,
                                 selected: false
                             ) {
-                                store.open(reference: reference)
+                                store.open(reference: reference, in: document)
                             }
                             .position(nodePoints(size: geometry.size)[index])
                         }
@@ -302,26 +302,38 @@ struct ReferenceGraphView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(references) { reference in
-                            Button {
-                                store.open(reference: reference)
-                            } label: {
-                                HStack {
-                                    Image(systemName: reference.exists ? "doc.text" : "questionmark.diamond")
-                                        .foregroundStyle(reference.exists ? Color.accentColor : Color.orange)
-                                    VStack(alignment: .leading) {
-                                        Text(reference.label).lineLimit(1)
-                                        Text(reference.destination)
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(1)
+                            HStack(spacing: 6) {
+                                Button {
+                                    store.open(reference: reference, in: document)
+                                } label: {
+                                    HStack {
+                                        Image(systemName: reference.exists ? "doc.text" : "questionmark.diamond")
+                                            .foregroundStyle(reference.exists ? Color.accentColor : Color.orange)
+                                        VStack(alignment: .leading) {
+                                            Text(reference.label).lineLimit(1)
+                                            Text(reference.destination)
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                        }
+                                        Spacer()
                                     }
-                                    Spacer()
+                                    .contentShape(Rectangle())
+                                    .padding(.leading, 10)
+                                    .padding(.vertical, 6)
                                 }
-                                .contentShape(Rectangle())
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
+                                .buttonStyle(.plain)
+
+                                if !reference.exists {
+                                    Button("Create") {
+                                        store.createFile(for: reference, in: document)
+                                    }
+                                    .buttonStyle(.link)
+                                    .font(.caption)
+                                    .help("Create \(reference.destination) and open it")
+                                    .padding(.trailing, 10)
+                                }
                             }
-                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.vertical, 6)

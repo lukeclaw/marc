@@ -114,6 +114,13 @@ struct WorkspaceView: View {
     private var toolbarContent: some ToolbarContent {
         ToolbarItemGroup {
             Button {
+                store.newDocument()
+            } label: {
+                Label("New", systemImage: "square.and.pencil")
+            }
+            .help("New Markdown file (⌘N)")
+
+            Button {
                 store.showOpenPanel()
             } label: {
                 Label("Open", systemImage: "folder")
@@ -304,9 +311,14 @@ struct WelcomeView: View {
                     .font(.title3)
                     .foregroundStyle(.secondary)
             }
-            Button("Open Markdown…") { store.showOpenPanel() }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+            HStack(spacing: 12) {
+                Button("New Markdown…") { store.newDocument() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                Button("Open Markdown…") { store.showOpenPanel() }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+            }
 
             if !store.recentURLs.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
@@ -363,14 +375,19 @@ struct TabStrip: View {
                     UngroupedTabSection(documents: ungrouped)
                 }
 
-                Button {
-                    store.showOpenPanel()
+                Menu {
+                    Button("New Markdown File…") { store.newDocument() }
+                    Button("Open Markdown…") { store.showOpenPanel() }
                 } label: {
                     Image(systemName: "plus")
                         .padding(8)
+                } primaryAction: {
+                    store.showOpenPanel()
                 }
-                .buttonStyle(.plain)
-                .help("Open another file")
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("New or open a file")
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
@@ -413,6 +430,13 @@ private struct GroupTabSection: View {
             .buttonStyle(.plain)
             .help(group.isCollapsed ? "Expand \(group.name)" : "Collapse \(group.name)")
             .contextMenu {
+                Button("New File in \(group.name)…") {
+                    store.newDocument(
+                        in: group.folderPath.map { URL(fileURLWithPath: $0) },
+                        groupID: group.id
+                    )
+                }
+                Divider()
                 Button("Rename Group…") { store.renameGroup(group) }
                 if let folderPath = group.folderPath {
                     Text("Auto-groups \(folderPath)")
@@ -553,6 +577,12 @@ private struct TabItemView: View {
                         }
                     }
                 }
+            }
+            Button("New File in This Folder…") {
+                store.newDocument(
+                    in: document.url.deletingLastPathComponent(),
+                    groupID: store.group(for: document)?.id
+                )
             }
             Button("New Group from This Folder…") {
                 store.createGroup(assigning: document)

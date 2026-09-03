@@ -285,11 +285,8 @@ struct MarkdownPreview: View {
             readingTask?.cancel()
         }
         .environment(\.openURL, OpenURLAction { url in
-            if ["md", "markdown", "mdown", "mkd"].contains(url.pathExtension.lowercased()) {
-                let resolved = url.isFileURL
-                    ? url
-                    : document.url.deletingLastPathComponent().appendingPathComponent(url.relativePath)
-                store.open(url: resolved)
+            if DocumentStore.markdownExtensions.contains(url.pathExtension.lowercased()) {
+                store.openLink(url, from: document)
                 return .handled
             }
             return .systemAction
