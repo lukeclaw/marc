@@ -104,3 +104,8 @@ windows/package.json	AppBundle/Info.plist,scripts/build-app.sh,scripts/install-a
 # Reviewed against the signing changes in 6944e74: electron-builder
 # already signs via signtool, so no package.json change was needed.
 !reviewed	windows/package.json	efa5fbd9e8486e803de6fb760e5aaf3f83f2e314
+
+# Reviewed against both commits: neither changed inline span rendering.
+# The DocumentWorkspaceView edits were the code view, the scrollbars, and the
+# link handler, which are ported in render.js.
+!reviewed	windows/src/renderer/inline.js	08d223c20a22793ca359ffa846c39117832b1e79
