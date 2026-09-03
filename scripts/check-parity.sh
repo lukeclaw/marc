@@ -61,12 +61,14 @@ trap 'rm -rf "$TMP"' EXIT
 : >"$TMP/mapped"
 : >"$TMP/covered"
 : >"$TMP/exempt"
+: >"$TMP/reviewed"
 
-# ------------------------------------------------------------------ manifest
+# --------------------------------------------------------------- directives
 
+# Read every directive first, so that a row's behaviour does not depend on
+# where the directive sits in the file.
 while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
-        ''|\#*) continue ;;
         '!coverage	'*)
             # !coverage <directory> <find name pattern>
             rest=${line#*	}
@@ -86,10 +88,38 @@ while IFS= read -r line || [ -n "$line" ]; do
             echo "${rest%%	*}" >>"$TMP/exempt"
             continue
             ;;
+        '!reviewed	'*)
+            # !reviewed <windows path> <revision> — the port was checked against
+            # this revision and needed no change. Records a decision that no
+            # commit would otherwise capture.
+            rest=${line#*	}
+            reviewed_path=${rest%%	*}
+            reviewed_rev=${rest#*	}
+            reviewed_rev=${reviewed_rev%%	*}
+            [ "$reviewed_path" != "$reviewed_rev" ] || {
+                echo "Malformed !reviewed row (expected two fields): $line" >&2
+                exit 2
+            }
+            resolved=$(git rev-parse --verify --quiet "$reviewed_rev^{commit}" || true)
+            [ -n "$resolved" ] || {
+                echo "!reviewed names an unknown revision: $reviewed_rev" >&2
+                exit 2
+            }
+            printf '%s\t%s\n' "$reviewed_path" "$resolved" >>"$TMP/reviewed"
+            continue
+            ;;
         '!'*)
             echo "Unknown manifest directive: $line" >&2
             exit 2
             ;;
+    esac
+done <"$MANIFEST"
+
+# ------------------------------------------------------------------ manifest
+
+while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+        ''|\#*|'!'*) continue ;;
     esac
 
     target=${line%%	*}
@@ -118,6 +148,17 @@ while IFS= read -r line || [ -n "$line" ]; do
         base=$SINCE
     else
         base=$(git log -1 --format=%H -- "$target" 2>/dev/null || true)
+
+        # A !reviewed revision counts as a baseline too, so that "looked at it,
+        # nothing to change" is recordable without a no-op commit. Whichever of
+        # the two is later wins.
+        reviewed=$(awk -F'\t' -v path="$target" '$1 == path { print $2 }' "$TMP/reviewed" | tail -1)
+        if [ -n "$reviewed" ]; then
+            if [ -z "$base" ] || git merge-base --is-ancestor "$base" "$reviewed" 2>/dev/null; then
+                base=$reviewed
+            fi
+        fi
+
         if [ -z "$base" ]; then
             printf 'UNTRACKED  %s\n           not committed yet, so staleness cannot be determined\n\n' \
                 "$target" >>"$TMP/report"

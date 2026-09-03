@@ -99,3 +99,7 @@ windows/scripts/generate-icon.js	scripts/generate-icon.swift
 # signing scripts carry on macOS: the bundle identity, the file associations,
 # the packaging targets, and the signing configuration.
 windows/package.json	AppBundle/Info.plist,scripts/build-app.sh,scripts/install-app.sh,scripts/sign-app.sh
+
+# Reviewed against the signing changes in 6944e74: electron-builder
+# already signs via signtool, so no package.json change was needed.
+!reviewed	windows/package.json	efa5fbd9e8486e803de6fb760e5aaf3f83f2e314
