@@ -21,6 +21,7 @@ struct MarcChecks {
         try checkTables()
         try checkStableBlockRevisions()
         try checkAttentionAnalysis()
+        try checkSyntaxHighlighting()
         try checkReferences()
         print("All marc parser checks passed.")
     }
@@ -301,6 +302,66 @@ struct MarcChecks {
                 crowdedResults.filter { $0.category == .review }.count <= 4,
             "Attention category quotas were not enforced"
         )
+    }
+
+    private static func checkSyntaxHighlighting() throws {
+        let swiftSource = """
+        // fetch the current member
+        let member: Member = fetchMember(id: 42)
+        print("ready")
+        """
+        let swift = SyntaxHighlighter.highlight(swiftSource, language: "swift")
+        try require(swift.languageName == "SWIFT", "Swift language alias did not resolve")
+        try require(token("let", in: swiftSource, result: swift)?.kind == .keyword, "Swift keyword was not highlighted")
+        try require(token("Member", in: swiftSource, result: swift)?.kind == .type, "Swift type was not highlighted")
+        try require(token("fetchMember", in: swiftSource, result: swift)?.kind == .function, "Swift function was not highlighted")
+        try require(token("42", in: swiftSource, result: swift)?.kind == .number, "Swift number was not highlighted")
+        try require(token("\"ready\"", in: swiftSource, result: swift)?.kind == .string, "Swift string was not highlighted")
+        try require(
+            token("// fetch the current member", in: swiftSource, result: swift)?.kind == .comment,
+            "Swift comment was not highlighted"
+        )
+
+        let pythonSource = "def greet(name):\n    return f\"hello {name}\" # greeting"
+        let python = SyntaxHighlighter.highlight(pythonSource, language: "py")
+        try require(token("def", in: pythonSource, result: python)?.kind == .keyword, "Python keyword was not highlighted")
+        try require(token("greet", in: pythonSource, result: python)?.kind == .function, "Python function was not highlighted")
+        try require(token("# greeting", in: pythonSource, result: python)?.kind == .comment, "Python comment was not highlighted")
+
+        let sqlSource = "SELECT member_id, COUNT(*) FROM premium_grants WHERE active = true;"
+        let sql = SyntaxHighlighter.highlight(sqlSource, language: "trino")
+        try require(token("SELECT", in: sqlSource, result: sql)?.kind == .keyword, "SQL keyword matching was not case-insensitive")
+        try require(token("COUNT", in: sqlSource, result: sql)?.kind == .function, "SQL function was not highlighted")
+        try require(token("true", in: sqlSource, result: sql)?.kind == .literal, "SQL literal was not highlighted")
+
+        let jsonSource = #"{"status": "ready", "count": 3, "enabled": true}"#
+        let json = SyntaxHighlighter.highlight(jsonSource, language: "json")
+        try require(token(#""status""#, in: jsonSource, result: json)?.kind == .property, "JSON key was not highlighted")
+        try require(token(#""ready""#, in: jsonSource, result: json)?.kind == .string, "JSON value was not highlighted")
+        try require(token("3", in: jsonSource, result: json)?.kind == .number, "JSON number was not highlighted")
+
+        let inferredSource = "def calculate_total(items):\n    return sum(items)"
+        let inferred = SyntaxHighlighter.highlight(inferredSource, language: nil)
+        try require(inferred.languageName == "PYTHON", "Unlabeled Python was not inferred")
+
+        let expression = "let result = 1-2"
+        let expressionResult = SyntaxHighlighter.highlight(expression, language: "swift")
+        try require(token("1", in: expression, result: expressionResult)?.kind == .number, "First number was not isolated")
+        try require(token("-", in: expression, result: expressionResult)?.kind == .operatorSymbol, "Minus operator was swallowed")
+        try require(token("2", in: expression, result: expressionResult)?.kind == .number, "Second number was not isolated")
+    }
+
+    private static func token(
+        _ token: String,
+        in source: String,
+        result: SyntaxHighlightResult
+    ) -> SyntaxHighlightSpan? {
+        let nsSource = source as NSString
+        let range = nsSource.range(of: token)
+        guard range.location != NSNotFound else { return nil }
+        return result.spans.first {
+            $0.location == range.location && $0.length == range.length
+        }
     }
 
     private static func checkReferences() throws {

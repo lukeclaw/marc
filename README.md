@@ -18,6 +18,9 @@ AI-generated Markdown documents.
 - Automatic restoration of open tabs, tab order, selection, groups, and per-file view state
 - Persistent unread and externally updated passage tracking with UI-only navigation
 - Click-triggered local attention suggestions for urgent, important, and review-worthy passages
+- Rich built-in syntax highlighting for common fenced-code languages, with safe language inference
+- Browser-style proportional tabs with group titles above each tab lane
+- Persistent high-contrast document scrollbars for light and dark themes
 - Linked-Markdown graph, closed by default
 - Automatic refresh when an external tool or AI agent changes an open file
 - Local Markdown link and wiki-link navigation

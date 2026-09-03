@@ -44,6 +44,11 @@ that folder or its descendants. Files can be reassigned or left ungrouped, group
 can be reordered, tabs can sort by open order, file name, or folder, and tabs can
 be dragged directly between group headers.
 
+Group names act as titles above their tab lanes. Expanded tabs share available
+window width and shrink uniformly like browser tabs, hiding secondary chrome as
+space tightens. Horizontal scrolling is used only after tabs reach their minimum
+readable width.
+
 ### Reading and editing
 
 Each tab supports three modes:
@@ -56,6 +61,14 @@ Edits auto-save after a short debounce and can also be saved explicitly.
 marc watches file modification dates. If an agent changes a clean document,
 the view refreshes automatically. If local unsaved edits exist, marc shows a
 conflict banner rather than overwriting either version.
+
+Fenced code blocks use a built-in lexical syntax highlighter with distinct
+colors for comments, strings, numbers, keywords, types, functions, properties,
+annotations, literals, and operators. Common fence aliases are supported for
+Swift, Kotlin, Java, JavaScript, TypeScript, Python, Go, Rust, C/C++, SQL,
+shell, JSON, YAML, HTML/XML, and CSS. Unlabeled blocks use conservative local
+language inference and unknown languages fall back to generic highlighting.
+No executable plugin or downloaded grammar is required.
 
 ### Per-file themes
 
@@ -125,6 +138,7 @@ references are visibly distinct and are not silently created.
 - Missing-link and disk-write errors surfaced in the UI
 - Horizontal reading-width limit instead of edge-to-edge prose
 - Full-window reading width and standard `⌘+`, `⌘−`, and `⌘0` text sizing
+- An always-available document scrollbar whose contrast follows the page theme
 - Source position preservation during ordinary edits
 
 ## Architecture
@@ -138,6 +152,7 @@ marc uses SwiftUI with selective AppKit integration:
 - `MarcCore`: lightweight structural block parser and reference extraction
 - `AttentionAnalyzer`: local semantic chunking, Apple embeddings, and reviewed
   attention profiles
+- `SyntaxHighlighter`: dependency-free lexical highlighting and language aliases
 - `WorkspaceView`: tabs, sidebars, toolbar, reader/editor composition
 - `MarkdownPreview`: themed structural rendering and fold state
 - `ThemeStore`: per-file presentation preferences in Application Support

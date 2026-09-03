@@ -364,34 +364,65 @@ struct TabStrip: View {
     @EnvironmentObject private var store: DocumentStore
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(store.groups) { group in
-                    GroupTabSection(group: group)
-                }
+        GeometryReader { geometry in
+            let ungrouped = store.groupDocuments(nil)
+            let metrics = TabStripMetrics(
+                availableWidth: geometry.size.width,
+                groups: store.groups.map {
+                    ($0.isCollapsed, store.groupDocuments($0.id).count)
+                },
+                ungroupedCount: ungrouped.count
+            )
 
-                let ungrouped = store.groupDocuments(nil)
-                if !ungrouped.isEmpty {
-                    UngroupedTabSection(documents: ungrouped)
-                }
+            ScrollView(.horizontal, showsIndicators: metrics.requiresScrolling) {
+                HStack(alignment: .top, spacing: metrics.laneSpacing) {
+                    ForEach(store.groups) { group in
+                        let documentCount = store.groupDocuments(group.id).count
+                        GroupTabSection(
+                            group: group,
+                            tabWidth: metrics.tabWidth,
+                            laneWidth: metrics.laneWidth(
+                                tabCount: documentCount,
+                                collapsed: group.isCollapsed
+                            )
+                        )
+                    }
 
-                Menu {
-                    Button("New Markdown File…") { store.newDocument() }
-                    Button("Open Markdown…") { store.showOpenPanel() }
-                } label: {
-                    Image(systemName: "plus")
-                        .padding(8)
-                } primaryAction: {
-                    store.showOpenPanel()
+                    if !ungrouped.isEmpty {
+                        UngroupedTabSection(
+                            documents: ungrouped,
+                            tabWidth: metrics.tabWidth,
+                            laneWidth: metrics.laneWidth(
+                                tabCount: ungrouped.count,
+                                collapsed: false
+                            )
+                        )
+                    }
+
+                    VStack(spacing: 0) {
+                        Color.clear.frame(height: 24)
+                        Menu {
+                            Button("New Markdown File…") { store.newDocument() }
+                            Button("Open Markdown…") { store.showOpenPanel() }
+                        } label: {
+                            Image(systemName: "plus")
+                                .frame(width: 28, height: 30)
+                                .contentShape(Rectangle())
+                        } primaryAction: {
+                            store.showOpenPanel()
+                        }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .fixedSize()
+                        .help("New or open a file")
+                    }
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .help("New or open a file")
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .frame(minWidth: geometry.size.width, alignment: .leading)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
         }
+        .frame(height: 70)
         .background(.bar)
     }
 }
@@ -399,6 +430,8 @@ struct TabStrip: View {
 private struct GroupTabSection: View {
     @EnvironmentObject private var store: DocumentStore
     let group: DocumentGroup
+    let tabWidth: CGFloat
+    let laneWidth: CGFloat
     @State private var isDropTargeted = false
 
     private var documents: [MarkdownDocument] {
@@ -406,7 +439,7 @@ private struct GroupTabSection: View {
     }
 
     var body: some View {
-        HStack(spacing: 2) {
+        VStack(alignment: .leading, spacing: 2) {
             Button {
                 store.toggleGroup(group)
             } label: {
@@ -420,12 +453,14 @@ private struct GroupTabSection: View {
                     Text("\(documents.count)")
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(.secondary)
-                    Image(systemName: group.isCollapsed ? "chevron.right" : "chevron.left")
+                    Spacer(minLength: 2)
+                    Image(systemName: group.isCollapsed ? "chevron.right" : "chevron.down")
                         .font(.caption2.bold())
                         .foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, 9)
-                .padding(.vertical, 8)
+                .padding(.horizontal, 7)
+                .frame(width: laneWidth, height: 22)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help(group.isCollapsed ? "Expand \(group.name)" : "Collapse \(group.name)")
@@ -451,16 +486,25 @@ private struct GroupTabSection: View {
             }
 
             if !group.isCollapsed {
-                ForEach(documents) { document in
-                    TabItemView(document: document)
+                HStack(spacing: 2) {
+                    ForEach(documents) { document in
+                        TabItemView(document: document, width: tabWidth)
+                    }
                 }
             }
         }
-        .padding(3)
+        .padding(2)
+        .frame(width: laneWidth, alignment: .leading)
         .background(
             group.color.opacity(isDropTargeted ? 0.26 : 0.1),
-            in: RoundedRectangle(cornerRadius: 9)
+            in: RoundedRectangle(cornerRadius: 7)
         )
+        .overlay(alignment: .top) {
+            Capsule()
+                .fill(group.color.opacity(0.75))
+                .frame(height: 2)
+                .padding(.horizontal, 6)
+        }
         .dropDestination(for: URL.self) { urls, _ in
             store.moveFiles(urls, to: group.id)
         } isTargeted: {
@@ -473,24 +517,36 @@ private struct GroupTabSection: View {
 private struct UngroupedTabSection: View {
     @EnvironmentObject private var store: DocumentStore
     let documents: [MarkdownDocument]
+    let tabWidth: CGFloat
+    let laneWidth: CGFloat
     @State private var isDropTargeted = false
 
     var body: some View {
-        HStack(spacing: 2) {
-            if !documents.isEmpty {
-                Text("UNGROUPED")
-                    .font(.caption2.bold())
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Text("Ungrouped")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Text("\(documents.count)")
+                    .font(.caption2.monospacedDigit())
                     .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 7)
+                Spacer()
             }
-            ForEach(documents) { document in
-                TabItemView(document: document)
+            .padding(.horizontal, 7)
+            .frame(width: laneWidth, height: 22)
+
+            HStack(spacing: 2) {
+                ForEach(documents) { document in
+                    TabItemView(document: document, width: tabWidth)
+                }
             }
         }
-        .padding(3)
+        .padding(2)
+        .frame(width: laneWidth, alignment: .leading)
         .background(
             isDropTargeted ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.05),
-            in: RoundedRectangle(cornerRadius: 8)
+            in: RoundedRectangle(cornerRadius: 7)
         )
         .dropDestination(for: URL.self) { urls, _ in
             store.moveFiles(urls, to: nil)
@@ -504,52 +560,65 @@ private struct UngroupedTabSection: View {
 private struct TabItemView: View {
     @EnvironmentObject private var store: DocumentStore
     @ObservedObject var document: MarkdownDocument
+    let width: CGFloat
+    @State private var isHovered = false
 
     var body: some View {
         Button {
             store.selectedID = document.id
         } label: {
-            HStack(spacing: 7) {
-                Image(systemName: "doc.text")
-                    .foregroundStyle(.secondary)
+            HStack(spacing: compact ? 4 : 7) {
+                if !veryCompact {
+                    Image(systemName: "doc.text")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                }
                 Text(document.displayName)
                     .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 if document.isDirty {
                     Circle()
                         .frame(width: 6, height: 6)
                         .foregroundStyle(.orange)
                 }
-                if !document.attentionResults.isEmpty {
+                if !compact, !document.attentionResults.isEmpty {
                     TabReadingBadge(
                         count: document.attentionSuggestionCount,
                         color: .purple,
                         opacity: document.attentionResultsAreStale ? 0.4 : 1
                     )
                 }
-                if document.changedCount > 0 {
+                if !compact, document.changedCount > 0 {
                     TabReadingBadge(count: document.changedCount, color: .orange)
-                } else if document.unreadCount > 0 {
+                } else if !compact, document.unreadCount > 0 {
                     TabReadingBadge(count: document.unreadCount, color: .blue)
                 }
-                Button {
-                    store.close(id: document.id)
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.caption.bold())
+                if showCloseButton {
+                    Button {
+                        store.close(id: document.id)
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.caption2.bold())
+                            .frame(width: 12, height: 16)
+                    }
+                    .buttonStyle(.plain)
+                    .transition(.opacity)
                 }
-                .buttonStyle(.plain)
-                .opacity(store.selectedID == document.id ? 1 : 0.45)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .padding(.horizontal, compact ? 6 : 9)
+            .frame(width: width, height: 32)
             .background(
                 store.selectedID == document.id
-                    ? Color.accentColor.opacity(0.12)
-                    : Color.clear,
-                in: RoundedRectangle(cornerRadius: 7)
+                    ? Color.accentColor.opacity(0.16)
+                    : (isHovered ? Color.primary.opacity(0.055) : Color.clear),
+                in: RoundedRectangle(cornerRadius: 6)
             )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .help(document.url.path)
         .draggable(document.url) {
             HStack(spacing: 7) {
                 Image(systemName: "doc.text")
@@ -597,19 +666,111 @@ private struct TabItemView: View {
         }
     }
 
-    private struct TabReadingBadge: View {
-        let count: Int
-        let color: Color
-        var opacity = 1.0
+    private var compact: Bool { width < 132 }
+    private var veryCompact: Bool { width < 96 }
+    private var showCloseButton: Bool {
+        store.selectedID == document.id || isHovered || width >= 150
+    }
+}
 
-        var body: some View {
-            Text("\(count)")
-                .font(.system(size: 9, weight: .bold, design: .rounded))
-                .foregroundStyle(color)
-                .padding(.horizontal, 5)
-                .padding(.vertical, 2)
-                .background(color.opacity(0.14), in: Capsule())
-                .opacity(opacity)
+private struct TabStripMetrics {
+    let availableWidth: CGFloat
+    let groups: [(collapsed: Bool, count: Int)]
+    let ungroupedCount: Int
+
+    let laneSpacing: CGFloat = 6
+    let tabSpacing: CGFloat = 2
+    let horizontalPadding: CGFloat = 16
+    let addButtonWidth: CGFloat = 34
+    let collapsedLaneWidth: CGFloat = 124
+    let emptyLaneWidth: CGFloat = 124
+    let minimumTabWidth: CGFloat = 72
+    let maximumTabWidth: CGFloat = 220
+    let minimumExpandedLaneWidth: CGFloat = 72
+
+    var tabWidth: CGFloat {
+        guard visibleTabCount > 0 else { return maximumTabWidth }
+        let availableForTabs = max(
+            0,
+            availableWidth -
+                horizontalPadding -
+                addButtonWidth -
+                fixedLaneWidth -
+                totalLaneSpacing -
+                totalTabSpacing
+        )
+        return min(maximumTabWidth, max(minimumTabWidth, availableForTabs / CGFloat(visibleTabCount)))
+    }
+
+    var requiresScrolling: Bool {
+        requiredContentWidth > availableWidth
+    }
+
+    func laneWidth(tabCount: Int, collapsed: Bool) -> CGFloat {
+        if collapsed { return collapsedLaneWidth }
+        if tabCount == 0 { return emptyLaneWidth }
+        return max(
+            minimumExpandedLaneWidth,
+            CGFloat(tabCount) * tabWidth + CGFloat(max(0, tabCount - 1)) * tabSpacing
+        )
+    }
+
+    private var visibleTabCount: Int {
+        groups.reduce(ungroupedCount) { partial, group in
+            partial + (group.collapsed ? 0 : group.count)
         }
+    }
+
+    private var fixedLaneWidth: CGFloat {
+        groups.reduce(0) { partial, group in
+            if group.collapsed { return partial + collapsedLaneWidth }
+            if group.count == 0 { return partial + emptyLaneWidth }
+            return partial
+        }
+    }
+
+    private var laneCount: Int {
+        groups.count + (ungroupedCount > 0 ? 1 : 0) + 1
+    }
+
+    private var totalLaneSpacing: CGFloat {
+        CGFloat(max(0, laneCount - 1)) * laneSpacing
+    }
+
+    private var totalTabSpacing: CGFloat {
+        let expandedGroupSpacing = groups.reduce(0) { partial, group in
+            partial + (group.collapsed ? 0 : max(0, group.count - 1))
+        }
+        return CGFloat(expandedGroupSpacing + max(0, ungroupedCount - 1)) * tabSpacing
+    }
+
+    private var requiredContentWidth: CGFloat {
+        let groupWidths = groups.reduce(0) { partial, group in
+            partial + laneWidth(tabCount: group.count, collapsed: group.collapsed)
+        }
+        let ungroupedWidth = ungroupedCount > 0
+            ? laneWidth(tabCount: ungroupedCount, collapsed: false)
+            : 0
+        return horizontalPadding +
+            groupWidths +
+            ungroupedWidth +
+            totalLaneSpacing +
+            addButtonWidth
+    }
+}
+
+private struct TabReadingBadge: View {
+    let count: Int
+    let color: Color
+    var opacity = 1.0
+
+    var body: some View {
+        Text("\(count)")
+            .font(.system(size: 9, weight: .bold, design: .rounded))
+            .foregroundStyle(color)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(color.opacity(0.14), in: Capsule())
+            .opacity(opacity)
     }
 }
