@@ -25,6 +25,7 @@ struct MarcChecks {
         try checkReferences()
         try checkGraphLayout()
         try checkReadingAlignment()
+        try checkHTMLStructure()
         print("All marc parser checks passed.")
     }
 
@@ -561,6 +562,108 @@ struct MarcChecks {
             ReadingAlignment.align(previous: identities(original), current: []).isEmpty,
             "Aligning against an empty document should report nothing"
         )
+    }
+
+    private static func checkHTMLStructure() throws {
+        let page = """
+        <!doctype html>
+        <html>
+        <head><title>Latency Report</title></head>
+        <body>
+          <h1>Latency Report</h1>
+          <p>The p99 held at <strong>240ms</strong>.</p>
+          <h2>Details</h2>
+          <p>Regional breakdown follows.</p>
+          <table><tr><td>eu-west</td><td>212ms</td></tr></table>
+          <pre><code>p99 = 240</code></pre>
+          <p>See <a href="plan.md">the plan</a> and <a href="appendix.html">the appendix</a>.</p>
+          <p>Also <a href="https://example.com/x">an external page</a>.</p>
+          <script src="https://cdn.example.com/chart.js"></script>
+        </body>
+        </html>
+        """
+        let parsed = HTMLParser.parse(page, baseURL: URL(fileURLWithPath: "/tmp/notes/report.html"))
+
+        try require(parsed.title == "Latency Report", "The page title was not read")
+        try require(
+            parsed.headings.map(\.title) == ["Latency Report", "Details"],
+            "HTML headings did not build an outline"
+        )
+        try require(parsed.headings.map(\.level) == [1, 2], "Heading levels were wrong")
+
+        let details = parsed.blocks.filter { $0.ancestorHeadingIDs.contains("details") }
+        try require(
+            details.map(\.tag) == ["p", "table", "pre", "p", "p"],
+            "Blocks were not attributed to the heading they sit under"
+        )
+
+        try require(
+            parsed.blocks.contains { $0.tag == "p" && $0.text == "The p99 held at 240ms." },
+            "Inline markup was not flattened into block text"
+        )
+        try require(
+            Set(parsed.blocks.map(\.id)).count == parsed.blocks.count,
+            "HTML block identifiers were not unique"
+        )
+        try require(
+            parsed.blocks.map(\.ordinal) == Array(0..<parsed.blocks.count),
+            "Block ordinals were not document order"
+        )
+
+        try require(
+            parsed.references.map(\.destination) == ["plan.md", "appendix.html"],
+            "Only local Markdown and HTML links belong in the graph"
+        )
+        try require(
+            parsed.references[0].resolvedURL?.path == "/tmp/notes/plan.md",
+            "A relative link from an HTML file did not resolve"
+        )
+        try require(
+            parsed.externalResources == ["https://cdn.example.com/chart.js"],
+            "External resources were not reported for the network prompt"
+        )
+        try require(parsed.shape == .prose, "A report should be treated as prose")
+
+        // Editing a paragraph should read as a revision, exactly as in Markdown.
+        let edited = page.replacingOccurrences(of: "held at <strong>240ms</strong>", with: "rose to 310ms")
+        let changes = ReadingAlignment.align(
+            previous: parsed.blocks.map(\.readingIdentity),
+            current: HTMLParser.parse(edited).blocks.map(\.readingIdentity)
+        )
+        try require(
+            changes.filter { if case .revised = $0 { true } else { false } }.count == 1,
+            "An edited HTML paragraph should report exactly one revision"
+        )
+
+        let dashboard = """
+        <html><body>
+        <div id="root"></div>
+        <canvas id="chart"></canvas>
+        <form><input name="q"><button>Go</button></form>
+        <script>
+        const state = { count: 0, series: [1, 2, 3], labels: ["a", "b", "c"] };
+        function render() { document.getElementById("chart").innerHTML = state.count; }
+        setInterval(render, 1000);
+        </script>
+        </body></html>
+        """
+        try require(
+            HTMLParser.parse(dashboard).shape == .app,
+            "An interactive page should not be treated as prose"
+        )
+
+        try require(
+            HTMLParser.parse("").blocks.isEmpty,
+            "An empty page should produce no blocks"
+        )
+        try require(
+            HTMLParser.parse("<p>Unclosed paragraph").blocks.count == 1,
+            "An unclosed element should still produce its block"
+        )
+
+        try require(DocumentFormat.of(URL(fileURLWithPath: "/a/b.md")) == .markdown, "md was not Markdown")
+        try require(DocumentFormat.of(URL(fileURLWithPath: "/a/b.HTML")) == .html, "HTML was not html")
+        try require(DocumentFormat.of(URL(fileURLWithPath: "/a/b.txt")) == nil, "txt is not a marc document")
     }
 
     private static func checkReferences() throws {

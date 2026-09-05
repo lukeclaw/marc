@@ -274,7 +274,7 @@ public enum MarkdownParser {
         return (hashes, title)
     }
 
-    private static func slug(_ title: String) -> String {
+    static func slug(_ title: String) -> String {
         let lowered = title.lowercased()
         let scalars = lowered.unicodeScalars.map { scalar -> Character in
             CharacterSet.alphanumerics.contains(scalar) ? Character(String(scalar)) : "-"
@@ -285,7 +285,7 @@ public enum MarkdownParser {
         return compact.isEmpty ? "section" : compact
     }
 
-    private static func stableIdentifier(_ source: String) -> String {
+    static func stableIdentifier(_ source: String) -> String {
         var hash: UInt64 = 14_695_981_039_346_656_037
         for byte in source.utf8 {
             hash ^= UInt64(byte)
