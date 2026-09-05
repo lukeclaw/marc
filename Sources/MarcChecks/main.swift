@@ -24,6 +24,7 @@ struct MarcChecks {
         try checkSyntaxHighlighting()
         try checkReferences()
         try checkGraphLayout()
+        try checkReadingAlignment()
         print("All marc parser checks passed.")
     }
 
@@ -448,6 +449,118 @@ struct MarcChecks {
     ) -> Bool {
         abs(a.x - b.x) < (aSize.width + bSize.width) / 2
             && abs(a.y - b.y) < (aSize.height + bSize.height) / 2
+    }
+
+    private static func checkReadingAlignment() throws {
+        func identities(_ source: String) -> [ReadingBlockIdentity] {
+            MarkdownParser.parse(source).blocks.map(\.readingIdentity)
+        }
+
+        let original = """
+        # Report
+
+        The build finished cleanly.
+
+        ## Results
+
+        Latency held steady.
+
+        Throughput improved.
+        """
+
+        try require(
+            ReadingAlignment.align(previous: identities(original), current: identities(original))
+                .allSatisfy { if case .unchanged = $0 { true } else { false } },
+            "Re-parsing an unchanged document reported changes"
+        )
+
+        let edited = original.replacingOccurrences(
+            of: "Latency held steady.",
+            with: "Latency regressed by 12ms."
+        )
+        let editChanges = ReadingAlignment.align(
+            previous: identities(original),
+            current: identities(edited)
+        )
+        let revised = editChanges.compactMap { change -> (String, String)? in
+            if case let .revised(id, previousID) = change { (id, previousID) } else { nil }
+        }
+        try require(revised.count == 1, "An edited paragraph should report exactly one revision")
+        try require(
+            revised[0].1 == identities(original)[3].id,
+            "The revision did not point at the paragraph it replaced"
+        )
+        try require(
+            editChanges.filter { if case .inserted = $0 { true } else { false } }.isEmpty,
+            "An edited paragraph should not report an insertion"
+        )
+
+        let inserted = original.replacingOccurrences(
+            of: "Latency held steady.",
+            with: "Latency held steady.\n\nMemory was flat."
+        )
+        let insertChanges = ReadingAlignment.align(
+            previous: identities(original),
+            current: identities(inserted)
+        )
+        try require(
+            insertChanges.filter { if case .inserted = $0 { true } else { false } }.count == 1,
+            "Inserting a paragraph should report exactly one insertion"
+        )
+        try require(
+            insertChanges.filter { if case .revised = $0 { true } else { false } }.isEmpty,
+            "Inserting a paragraph should leave surrounding blocks untouched"
+        )
+        try require(
+            insertChanges.filter { if case .unchanged = $0 { true } else { false } }.count
+                == identities(original).count,
+            "Every pre-existing block should survive an insertion unchanged"
+        )
+
+        let retyped = original.replacingOccurrences(
+            of: "Latency held steady.",
+            with: "```\nlatency: steady\n```"
+        )
+        let kindChanges = ReadingAlignment.align(
+            previous: identities(original),
+            current: identities(retyped)
+        )
+        try require(
+            kindChanges.contains { if case .inserted = $0 { true } else { false } },
+            "Replacing a paragraph with a code block should not read as a revision"
+        )
+
+        let moved = """
+        # Report
+
+        The build finished cleanly.
+
+        ## Results
+
+        Throughput improved.
+
+        ## Notes
+
+        Latency held steadyish.
+        """
+        let sectionChanges = ReadingAlignment.align(
+            previous: identities(original),
+            current: identities(moved)
+        )
+        try require(
+            sectionChanges.filter { if case .revised = $0 { true } else { false } }.isEmpty,
+            "Blocks should not be paired as revisions across different headings"
+        )
+
+        let empty = ReadingAlignment.align(previous: [], current: identities(original))
+        try require(
+            empty.allSatisfy { if case .inserted = $0 { true } else { false } },
+            "Every block of a document with no baseline should be new"
+        )
+        try require(
+            ReadingAlignment.align(previous: identities(original), current: []).isEmpty,
+            "Aligning against an empty document should report nothing"
+        )
     }
 
     private static func checkReferences() throws {

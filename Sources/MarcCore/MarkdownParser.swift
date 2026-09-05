@@ -57,6 +57,17 @@ public struct MarkdownBlock: Identifiable, Equatable {
     public let signature: String
     public let kind: Kind
     public let ancestorHeadingIDs: [String]
+
+    /// Stable name for the block's kind, used when matching an edited block
+    /// against the block that previously stood in its place.
+    public var typeName: String { MarkdownParser.blockType(kind) }
+
+    /// The heading this block sits under, or `nil` at the top of a document.
+    public var sectionID: String? { ancestorHeadingIDs.last }
+
+    public var readingIdentity: ReadingBlockIdentity {
+        ReadingBlockIdentity(id: id, signature: signature, kind: typeName, section: sectionID)
+    }
 }
 
 public struct ParsedMarkdown {
@@ -283,7 +294,7 @@ public enum MarkdownParser {
         return String(hash, radix: 16)
     }
 
-    private static func blockType(_ kind: MarkdownBlock.Kind) -> String {
+    static func blockType(_ kind: MarkdownBlock.Kind) -> String {
         switch kind {
         case .heading: "heading"
         case .paragraph: "paragraph"

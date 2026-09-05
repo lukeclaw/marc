@@ -98,16 +98,27 @@ heading of the same or higher level.
 ### Reading progress and update awareness
 
 Each semantic Markdown block has a deterministic revision identity. Newly opened
-content begins unread, while blocks inserted or changed by an external writer are
-marked as updated. Unchanged blocks preserve their read state even when other
+content begins unread. Unchanged blocks preserve their read state even when other
 content is inserted around them.
 
-Rendered blocks become read after dwelling in the visible reading area; fast
-scrolling does not immediately clear them. Blue gutter marks represent unread
-content and orange marks represent externally updated content. The same state is
-aggregated into outline and tab badges, with previous/next navigation, a compact
-in-app status strip, and manual section or document read controls. No system
-notifications or permission prompts are used.
+Every re-parse is matched against the previous revision of the document, so an
+edited block is recognized as a revision of the block that stood in its place
+rather than as unrelated new content. Matching is confined to blocks of the same
+kind under the same heading. Where the change came from decides what it means:
+text typed in marc's own editor is already read and never raises a marker, while
+text written by an agent or another tool is marked as updated when its previous
+version had been read and as unread when it had not.
+
+A block becomes read once it has been on screen and then travelled above the
+reading line, so scrolling quickly through a section still retires it, and the
+block resting on that line is read after a short dwell. Only blocks that were
+actually displayed can be retired this way, so jumping into the middle of a
+document from the outline never marks the pages that were skipped.
+
+Blue gutter marks represent unread content and orange marks represent externally
+updated content. The same state is aggregated into outline and tab badges, with
+previous/next navigation, a compact in-app status strip, and manual section or
+document read controls. No system notifications or permission prompts are used.
 
 ### On-demand attention analysis
 
@@ -160,6 +171,7 @@ marc uses SwiftUI with selective AppKit integration:
   attention profiles
 - `SyntaxHighlighter`: dependency-free lexical highlighting and language aliases
 - `ReferenceGraphLayout`: deterministic, non-overlapping ring layout for the graph
+- `ReadingAlignment`: matches a document's blocks against their previous revision
 - `WorkspaceView`: tabs, sidebars, toolbar, reader/editor composition
 - `MarkdownPreview`: themed structural rendering and fold state
 - `ThemeStore`: per-file presentation preferences in Application Support

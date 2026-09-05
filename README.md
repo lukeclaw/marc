@@ -16,7 +16,7 @@ AI-generated Markdown documents.
 - Full-window or custom-width pages and `⌘+`/`⌘−` per-file text sizing
 - Drag-resizable table columns and drag-and-drop movement between project groups
 - Automatic restoration of open tabs, tab order, selection, groups, and per-file view state
-- Persistent unread and externally updated passage tracking with UI-only navigation
+- Persistent unread and externally updated passage tracking that survives edits, with UI-only navigation
 - Click-triggered local attention suggestions for urgent, important, and review-worthy passages
 - Rich built-in syntax highlighting for common fenced-code languages, with safe language inference
 - Browser-style proportional tabs with group titles above each tab lane

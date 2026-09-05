@@ -203,6 +203,10 @@ struct MarkdownPreview: View {
     @Binding var attentionHighlightTarget: String?
     @State private var readingCandidateID: String?
     @State private var readingTask: Task<Void, Never>?
+    /// Blocks that have been on screen at or below the reading line. Only these
+    /// can later count as scrolled past, so jumping into the middle of a
+    /// document never marks the pages you skipped over.
+    @State private var seenBelowReadingLine: Set<String> = []
 
     private var parsed: ParsedMarkdown { document.parsed }
     private var theme: MarkdownTheme { document.preferences.theme }
@@ -272,7 +276,12 @@ struct MarkdownPreview: View {
                 .coordinateSpace(name: readingCoordinateSpace)
                 .background(theme.background.color)
                 .onPreferenceChange(BlockFramePreferenceKey.self) { frames in
-                    updateReadingCandidate(frames: frames, viewportHeight: viewport.size.height)
+                    updateReadingProgress(frames: frames, viewportHeight: viewport.size.height)
+                }
+                .onChange(of: document.id) {
+                    seenBelowReadingLine = []
+                    readingCandidateID = nil
+                    readingTask?.cancel()
                 }
                 .onChange(of: navigationTarget) {
                     guard let target = navigationTarget else { return }
@@ -319,23 +328,49 @@ struct MarkdownPreview: View {
         return luminance > 0.55 ? .dark : .light
     }
 
-    private func updateReadingCandidate(frames: [String: CGRect], viewportHeight: CGFloat) {
+    /// Advances reading state from the current block frames.
+    ///
+    /// A block is read once it has been on screen and then travelled above the
+    /// reading line, so scrolling quickly through a section still retires it.
+    /// The block resting on the line is read after a short dwell, so pausing
+    /// mid-passage counts too.
+    private func updateReadingProgress(frames: [String: CGRect], viewportHeight: CGFloat) {
+        guard viewportHeight > 0 else { return }
         let readingLine = viewportHeight * 0.55
-        let pendingBlocks = document.pendingReadingBlocks
-        let crossingCandidate = pendingBlocks.first { block in
+        let blocks = parsed.blocks
+
+        var newlySeen: Set<String> = []
+        var highestPassedIndex = -1
+        for (index, block) in blocks.enumerated() {
+            guard let frame = frames[block.id] else { continue }
+            let onScreen = frame.maxY > 0 && frame.minY < viewportHeight
+            if onScreen && frame.maxY >= readingLine {
+                newlySeen.insert(block.id)
+            } else if frame.maxY < readingLine, seenBelowReadingLine.contains(block.id) {
+                highestPassedIndex = max(highestPassedIndex, index)
+            }
+        }
+
+        // Blocks scrolled well past the top are dropped from the lazy stack
+        // before their final frame arrives, so anything already seen that sits
+        // ahead of the furthest retired block has been passed too.
+        if highestPassedIndex >= 0 {
+            let passed = blocks[...highestPassedIndex]
+                .map(\.id)
+                .filter(seenBelowReadingLine.contains)
+            if !passed.isEmpty {
+                document.markBlocksRead(passed)
+            }
+        }
+
+        if !newlySeen.isEmpty {
+            seenBelowReadingLine.formUnion(newlySeen)
+        }
+
+        let candidate = blocks.first { block in
             guard let frame = frames[block.id] else { return false }
             return frame.minY <= readingLine && frame.maxY >= readingLine
-        }
-        let visibleCandidate = pendingBlocks
-            .compactMap { block -> (MarkdownBlock, CGFloat)? in
-                guard let frame = frames[block.id], frame.maxY >= 0, frame.minY <= viewportHeight else {
-                    return nil
-                }
-                return (block, abs(frame.midY - readingLine))
-            }
-            .min { $0.1 < $1.1 }?
-            .0
-        let candidate = (crossingCandidate ?? visibleCandidate)?.id
+        }?.id
 
         guard candidate != readingCandidateID else { return }
         readingTask?.cancel()

@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import MarcCore
 import SwiftUI
 
 enum WorkspaceMode: String, CaseIterable, Identifiable {
@@ -51,6 +52,14 @@ struct DocumentGroup: Codable, Equatable, Identifiable {
     var color: Color { Color(hex: colorHex) }
 }
 
+/// Where a change to a document's text came from.
+enum ReadingUpdateOrigin {
+    /// Typed in marc's own source editor.
+    case localEdit
+    /// Written by an agent, another editor, or a previous session.
+    case external
+}
+
 enum BlockReadingStatus {
     case read
     case unread
@@ -60,6 +69,14 @@ enum BlockReadingStatus {
 struct ReadingBlockRevision: Codable, Equatable {
     var id: String
     var signature: String
+    /// Block kind and enclosing heading, absent in baselines written before
+    /// revision matching existed. Treated as a wildcard when missing.
+    var kind: String?
+    var section: String?
+
+    var identity: ReadingBlockIdentity {
+        ReadingBlockIdentity(id: id, signature: signature, kind: kind, section: section)
+    }
 }
 
 struct ReadingState: Codable, Equatable {
