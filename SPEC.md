@@ -162,7 +162,9 @@ restrictions, evaluation gate, and non-goals are defined in
 
 ### Linked-document graph
 
-marc recognizes relative Markdown links and `[[wiki links]]`. The graph panel
+marc recognizes relative links and `[[wiki links]]` to any file it can open, in
+both directions between formats, so a plan in Markdown and a demo in HTML appear
+in one graph. Links out to the web are not graph nodes. The graph panel
 is closed by default and shows the current document as a central node with its
 referenced Markdown files around it. Existing references open in a tab. Missing
 references are visibly distinct and are not silently created.

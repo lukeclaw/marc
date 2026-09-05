@@ -761,17 +761,40 @@ struct MarcChecks {
     private static func checkReferences() throws {
         let base = URL(fileURLWithPath: "/tmp/notes/current.md")
         let parsed = MarkdownParser.parse(
-            "See [Plan](plans/plan.md#next) and [[Results|the results]].",
+            """
+            See [Plan](plans/plan.md#next) and [[Results|the results]].
+            The [demo](out/demo.html) and [notes](notes.mkd) belong here too.
+            [Upstream](https://example.com/page.html) does not, nor does [[Chart.html]].
+            """,
             baseURL: base
         )
 
-        try require(parsed.references.map(\.label) == ["Plan", "the results"], "Reference labels were incorrect")
+        try require(
+            parsed.references.map(\.label) == ["Plan", "demo", "notes", "the results", "Chart.html"],
+            "Reference labels were incorrect"
+        )
+        try require(
+            parsed.references[1].resolvedURL?.path == "/tmp/notes/out/demo.html",
+            "A link to an HTML file should be a graph edge"
+        )
+        try require(
+            parsed.references[2].resolvedURL?.path == "/tmp/notes/notes.mkd",
+            "Every Markdown extension marc opens should be a graph edge"
+        )
+        try require(
+            parsed.references[4].resolvedURL?.path == "/tmp/notes/Chart.html",
+            "A wiki link naming an HTML file should not have .md appended"
+        )
+        try require(
+            !parsed.references.contains { $0.destination.contains("://") },
+            "A link to the web is not a document in the folder"
+        )
         try require(
             parsed.references[0].resolvedURL?.path == "/tmp/notes/plans/plan.md",
             "Relative Markdown link did not resolve"
         )
         try require(
-            parsed.references[1].resolvedURL?.path == "/tmp/notes/Results.md",
+            parsed.references[3].resolvedURL?.path == "/tmp/notes/Results.md",
             "Wiki link did not resolve"
         )
     }

@@ -468,7 +468,12 @@ public enum MarkdownParser {
         var results: [MarkdownReference] = []
         var seen: Set<String> = []
 
-        let inlinePattern = #"\[([^\]]+)\]\(([^)\s]+(?:\.md|\.markdown)(?:#[^)]*)?)\)"#
+        // Any file marc can open is a graph edge, so a plan in Markdown and a
+        // demo in HTML end up in one graph.
+        let extensions = DocumentFormat.allExtensions
+            .map { "\\.\($0)" }
+            .joined(separator: "|")
+        let inlinePattern = "\\[([^\\]]+)\\]\\(([^)\\s]+(?:\(extensions))(?:#[^)]*)?)\\)"
         if let regex = try? NSRegularExpression(pattern: inlinePattern, options: [.caseInsensitive]) {
             let range = NSRange(source.startIndex..., in: source)
             for match in regex.matches(in: source, range: range) {
@@ -499,7 +504,10 @@ public enum MarkdownParser {
                 } else {
                     label = target
                 }
-                let destination = target.lowercased().hasSuffix(".md") ? target : "\(target).md"
+                // A wiki link without an extension means a Markdown file.
+                let destination = DocumentFormat.of(extension: (target as NSString).pathExtension) != nil
+                    ? target
+                    : "\(target).md"
                 addReference(
                     label: label,
                     destination: destination,
@@ -522,7 +530,9 @@ public enum MarkdownParser {
     ) {
         let path = destination.removingPercentEncoding?
             .components(separatedBy: "#").first ?? destination
-        guard !path.isEmpty, seen.insert(path).inserted else { return }
+        // A link out to the web is not a document in this folder.
+        guard !path.isEmpty, !path.contains("://"), !path.hasPrefix("//") else { return }
+        guard seen.insert(path).inserted else { return }
         let resolvedURL = baseURL?
             .deletingLastPathComponent()
             .appendingPathComponent(path)
