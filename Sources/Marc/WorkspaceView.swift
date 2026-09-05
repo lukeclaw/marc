@@ -8,6 +8,7 @@ struct WorkspaceView: View {
     @AppStorage("tocPosition") private var tocPosition: SidebarPosition = .left
     @AppStorage("showTableOfContents") private var showTableOfContents = true
     @AppStorage("attentionAnalysisAcknowledged") private var attentionAnalysisAcknowledged = false
+    @AppStorage("graphPanelWidth") private var graphPanelWidth = 360.0
     @State private var showGraph = false
     @State private var showAttention = false
     @State private var showAttentionDisclosure = false
@@ -73,9 +74,9 @@ struct WorkspaceView: View {
             }
 
             if showGraph {
-                Divider()
-                ReferenceGraphView(document: document)
-                    .frame(width: 300)
+                PanelResizeHandle(width: $graphPanelWidth, edge: .leading, range: 260...620)
+                ReferenceGraphView(document: document) { showGraph = false }
+                    .frame(width: graphPanelWidth)
             }
 
             if showAttention {

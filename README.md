@@ -21,7 +21,7 @@ AI-generated Markdown documents.
 - Rich built-in syntax highlighting for common fenced-code languages, with safe language inference
 - Browser-style proportional tabs with group titles above each tab lane
 - Persistent high-contrast document scrollbars for light and dark themes
-- Linked-Markdown graph, closed by default
+- Linked-Markdown graph, closed by default, with pan, zoom, and a resizable panel
 - Automatic refresh when an external tool or AI agent changes an open file
 - Local Markdown link and wiki-link navigation
 - Find, recent files, drag-and-drop opening, and keyboard shortcuts

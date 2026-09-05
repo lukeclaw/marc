@@ -124,6 +124,12 @@ is closed by default and shows the current document as a central node with its
 referenced Markdown files around it. Existing references open in a tab. Missing
 references are visibly distinct and are not silently created.
 
+Nodes are placed on concentric rings sized so that cards never overlap at any
+reference count, and edges stop at each card's boundary. The graph is scaled to
+fit, then panned and zoomed by drag and pinch, with a double-click reset. The
+panel itself is resizable and closable, and link existence is resolved once per
+reference set off the main thread rather than during layout.
+
 ## Quality-of-life behavior
 
 - Search within the current source document
@@ -153,6 +159,7 @@ marc uses SwiftUI with selective AppKit integration:
 - `AttentionAnalyzer`: local semantic chunking, Apple embeddings, and reviewed
   attention profiles
 - `SyntaxHighlighter`: dependency-free lexical highlighting and language aliases
+- `ReferenceGraphLayout`: deterministic, non-overlapping ring layout for the graph
 - `WorkspaceView`: tabs, sidebars, toolbar, reader/editor composition
 - `MarkdownPreview`: themed structural rendering and fold state
 - `ThemeStore`: per-file presentation preferences in Application Support

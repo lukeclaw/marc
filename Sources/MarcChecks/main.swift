@@ -23,6 +23,7 @@ struct MarcChecks {
         try checkAttentionAnalysis()
         try checkSyntaxHighlighting()
         try checkReferences()
+        try checkGraphLayout()
         print("All marc parser checks passed.")
     }
 
@@ -362,6 +363,91 @@ struct MarcChecks {
         return result.spans.first {
             $0.location == range.location && $0.length == range.length
         }
+    }
+
+    private static func checkGraphLayout() throws {
+        for count in [0, 1, 2, 5, 9, 24, 60] {
+            let ids = (0..<count).map { "node-\($0)" }
+            let layout = ReferenceGraphLayout(ids: ids)
+
+            try require(layout.nodes.count == count, "Layout dropped nodes for a count of \(count)")
+            try require(
+                Set(layout.nodes.map(\.id)).count == count,
+                "Layout produced duplicate nodes for a count of \(count)"
+            )
+
+            let half = CGSize(width: layout.nodeSize.width / 2, height: layout.nodeSize.height / 2)
+            for node in layout.nodes {
+                try require(
+                    node.center.x - half.width >= 0,
+                    "Node \(node.id) fell outside the canvas for a count of \(count)"
+                )
+                try require(
+                    node.center.x + half.width <= layout.contentSize.width,
+                    "Node \(node.id) fell outside the canvas for a count of \(count)"
+                )
+                try require(
+                    node.center.y - half.height >= 0,
+                    "Node \(node.id) fell outside the canvas for a count of \(count)"
+                )
+                try require(
+                    node.center.y + half.height <= layout.contentSize.height,
+                    "Node \(node.id) fell outside the canvas for a count of \(count)"
+                )
+                try require(
+                    !overlaps(node.center, layout.nodeSize, layout.center, layout.centerNodeSize),
+                    "Node \(node.id) overlapped the current-file node for a count of \(count)"
+                )
+            }
+
+            for (index, node) in layout.nodes.enumerated() {
+                for other in layout.nodes[(index + 1)...] {
+                    try require(
+                        !overlaps(node.center, layout.nodeSize, other.center, layout.nodeSize),
+                        "Nodes \(node.id) and \(other.id) overlapped for a count of \(count)"
+                    )
+                }
+            }
+        }
+
+        let layout = ReferenceGraphLayout(ids: ["a", "b", "c"])
+        guard let first = layout.nodes.first else {
+            throw CheckFailure.failed("Layout produced no nodes to trim an edge against")
+        }
+        let start = ReferenceGraphLayout.boundaryPoint(
+            from: layout.center,
+            toward: first.center,
+            size: layout.centerNodeSize
+        )
+        try require(
+            abs(start.x - layout.center.x) <= layout.centerNodeSize.width / 2 + 0.001
+                && abs(start.y - layout.center.y) <= layout.centerNodeSize.height / 2 + 0.001,
+            "Edge start was not trimmed to the center card boundary"
+        )
+        try require(
+            start != layout.center,
+            "Edge start was not moved off the center point"
+        )
+
+        let fit = ReferenceGraphLayout(ids: (0..<30).map { "n\($0)" })
+        try require(
+            fit.fitScale(in: CGSize(width: 300, height: 300)) < 1,
+            "A large graph should scale down to fit a narrow panel"
+        )
+        try require(
+            fit.fitScale(in: CGSize(width: 4000, height: 4000)) == 1,
+            "A graph should not scale up beyond its natural size"
+        )
+    }
+
+    private static func overlaps(
+        _ a: CGPoint,
+        _ aSize: CGSize,
+        _ b: CGPoint,
+        _ bSize: CGSize
+    ) -> Bool {
+        abs(a.x - b.x) < (aSize.width + bSize.width) / 2
+            && abs(a.y - b.y) < (aSize.height + bSize.height) / 2
     }
 
     private static func checkReferences() throws {
