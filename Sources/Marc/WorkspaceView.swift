@@ -9,7 +9,8 @@ struct WorkspaceView: View {
     @AppStorage("showTableOfContents") private var showTableOfContents = true
     @AppStorage("attentionAnalysisAcknowledged") private var attentionAnalysisAcknowledged = false
     @AppStorage("graphPanelWidth") private var graphPanelWidth = 360.0
-    @State private var showGraph = false
+    @AppStorage("outlinePanelWidth") private var outlinePanelWidth = 250.0
+    @AppStorage("showLinkedFiles") private var showGraph = false
     @State private var showAttention = false
     @State private var showAttentionDisclosure = false
     @State private var showThemeEditor = false
@@ -56,8 +57,12 @@ struct WorkspaceView: View {
     private func workspace(for document: MarkdownDocument) -> some View {
         HStack(spacing: 0) {
             if showTableOfContents && tocPosition == .left {
-                TableOfContentsView(document: document, navigationTarget: $navigationTarget)
-                Divider()
+                TableOfContentsView(
+                    document: document,
+                    navigationTarget: $navigationTarget
+                ) { showTableOfContents = false }
+                    .frame(width: outlinePanelWidth)
+                PanelResizeHandle(width: $outlinePanelWidth, edge: .trailing, range: 190...480)
             }
 
             DocumentWorkspaceView(
@@ -69,8 +74,12 @@ struct WorkspaceView: View {
             )
 
             if showTableOfContents && tocPosition == .right {
-                Divider()
-                TableOfContentsView(document: document, navigationTarget: $navigationTarget)
+                PanelResizeHandle(width: $outlinePanelWidth, edge: .leading, range: 190...480)
+                TableOfContentsView(
+                    document: document,
+                    navigationTarget: $navigationTarget
+                ) { showTableOfContents = false }
+                    .frame(width: outlinePanelWidth)
             }
 
             if showGraph {
@@ -113,6 +122,18 @@ struct WorkspaceView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        ToolbarItemGroup(placement: .navigation) {
+            Toggle(isOn: $showTableOfContents) {
+                Label("Outline", systemImage: "sidebar.left")
+            }
+            .help(showTableOfContents ? "Hide outline (⇧⌘T)" : "Show outline (⇧⌘T)")
+
+            Toggle(isOn: $showGraph) {
+                Label("Linked Files", systemImage: "point.3.connected.trianglepath.dotted")
+            }
+            .help(showGraph ? "Hide linked files (⇧⌘G)" : "Show linked files (⇧⌘G)")
+        }
+
         ToolbarItemGroup {
             Button {
                 store.newDocument()
@@ -135,22 +156,6 @@ struct WorkspaceView: View {
             }
             .pickerStyle(.segmented)
             .frame(width: 250)
-
-            Button {
-                showTableOfContents.toggle()
-            } label: {
-                Label("Table of Contents", systemImage: "sidebar.left")
-            }
-            .keyboardShortcut("t", modifiers: [.command, .shift])
-            .help("Toggle table of contents (⇧⌘T)")
-
-            Button {
-                showGraph.toggle()
-            } label: {
-                Label("Linked Files", systemImage: "point.3.connected.trianglepath.dotted")
-            }
-            .keyboardShortcut("g", modifiers: [.command, .shift])
-            .help("Toggle linked files (⇧⌘G)")
 
             Button {
                 guard let document = store.selectedDocument else { return }

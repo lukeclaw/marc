@@ -10,7 +10,7 @@ AI-generated Markdown documents.
 - New Markdown files from the File menu (⌘N), toolbar, welcome screen, tab bar, project group, or a missing link
 - Per-file themes stored without changing the Markdown file
 - Collapsible heading sections
-- Navigable table of contents on either side
+- Navigable table of contents on either side, closable and drag-resizable
 - In-app tabs for multiple files
 - Persistent, collapsible project groups with folder auto-assignment and tab sorting
 - Full-window or custom-width pages and `⌘+`/`⌘−` per-file text sizing
@@ -24,6 +24,7 @@ AI-generated Markdown documents.
 - Linked-Markdown graph, closed by default, with pan, zoom, and a resizable panel
 - Automatic refresh when an external tool or AI agent changes an open file
 - Local Markdown link and wiki-link navigation
+- A View menu for panels, outline placement, and document view mode
 - Find, recent files, drag-and-drop opening, and keyboard shortcuts
 
 ## Build

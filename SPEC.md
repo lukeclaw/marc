@@ -90,10 +90,18 @@ rectangular grid.
 ### Structure navigation
 
 The table of contents derives from headings and can be shown on the left or
-right. Hierarchical guide rails make heading depth visible without repeated
-icons or badges. Selecting an entry scrolls the rendered document to it. Headings expose a
-disclosure control; collapsing a heading hides all content through the next
-heading of the same or higher level.
+right. It is closable from its own header, from a toggle in the toolbar, and
+from the View menu, and its width is drag-resizable. Hierarchical guide rails
+make heading depth visible without repeated icons or badges. Selecting an entry
+scrolls the rendered document to it. Headings expose a disclosure control;
+collapsing a heading hides all content through the next heading of the same or
+higher level.
+
+A View menu carries the outline and linked-files toggles, outline placement, and
+the document view mode, so every panel can be reached without the toolbar. marc
+turns off macOS window tabbing, which otherwise contributes a Show Tab Bar item
+that claims the same shortcut as the outline toggle and window commands that do
+not apply to marc's own tabs.
 
 ### Reading progress and update awareness
 
@@ -151,6 +159,7 @@ reference set off the main thread rather than during layout.
 - Copy current file path
 - Reveal current file in Finder
 - Keyboard shortcuts for open, save, view modes, table of contents, graph, and theme
+- Closable, drag-resizable outline and linked-files panels
 - Empty-state guidance
 - Missing-link and disk-write errors surfaced in the UI
 - Horizontal reading-width limit instead of edge-to-edge prose

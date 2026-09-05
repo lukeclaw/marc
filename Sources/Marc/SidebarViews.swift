@@ -5,18 +5,30 @@ import SwiftUI
 struct TableOfContentsView: View {
     @ObservedObject var document: MarkdownDocument
     @Binding var navigationTarget: String?
+    var close: () -> Void = {}
 
     private var headings: [MarkdownHeading] { document.parsed.headings }
     private var baseLevel: Int { headings.map(\.level).min() ?? 1 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Label("Outline", systemImage: "list.bullet.indent")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .help("\(headings.count) headings")
+            HStack(spacing: 6) {
+                Label("Outline", systemImage: "list.bullet.indent")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .help("\(headings.count) headings")
+
+                Spacer(minLength: 4)
+
+                Button(action: close) {
+                    Image(systemName: "xmark")
+                }
+                .buttonStyle(.borderless)
+                .font(.caption)
+                .help("Hide outline (⇧⌘T)")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
 
             Divider()
 
@@ -53,7 +65,6 @@ struct TableOfContentsView: View {
                 }
             }
         }
-        .frame(width: 240)
         .background(.bar)
     }
 
