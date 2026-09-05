@@ -36,7 +36,7 @@ struct WorkspaceView: View {
             attentionHighlightTarget = nil
         }
         .dropDestination(for: URL.self) { urls, _ in
-            urls.filter { ["md", "markdown", "mdown", "mkd"].contains($0.pathExtension.lowercased()) }
+            urls.filter { DocumentFormat.of($0) != nil }
                 .forEach(store.open)
             return true
         }
@@ -135,12 +135,15 @@ struct WorkspaceView: View {
         }
 
         ToolbarItemGroup {
-            Button {
-                store.newDocument()
+            Menu {
+                Button("New Markdown File…") { store.newDocument(format: .markdown) }
+                Button("New HTML File…") { store.newDocument(format: .html) }
             } label: {
                 Label("New", systemImage: "square.and.pencil")
+            } primaryAction: {
+                store.newDocument(format: .markdown)
             }
-            .help("New Markdown file (⌘N)")
+            .help("New file (⌘N)")
 
             Button {
                 store.showOpenPanel()
@@ -171,8 +174,12 @@ struct WorkspaceView: View {
                 Label("Analyze Attention", systemImage: "scope")
             }
             .keyboardShortcut("a", modifiers: [.command, .shift])
-            .disabled(store.selectedDocument == nil)
-            .help("Analyze attention locally on request (⇧⌘A)")
+            .disabled(store.selectedDocument?.supportsAttentionAnalysis != true)
+            .help(
+                store.selectedDocument?.format == .html
+                    ? "Attention analysis reads Markdown documents"
+                    : "Analyze attention locally on request (⇧⌘A)"
+            )
             .popover(isPresented: $showAttentionDisclosure, arrowEdge: .bottom) {
                 AttentionDisclosureView(
                     modelAvailable: AttentionAnalyzer.isAvailable,

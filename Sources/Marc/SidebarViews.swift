@@ -7,7 +7,7 @@ struct TableOfContentsView: View {
     @Binding var navigationTarget: String?
     var close: () -> Void = {}
 
-    private var headings: [MarkdownHeading] { document.parsed.headings }
+    private var headings: [MarkdownHeading] { document.headings }
     private var baseLevel: Int { headings.map(\.level).min() ?? 1 }
 
     var body: some View {
@@ -36,7 +36,11 @@ struct TableOfContentsView: View {
                 ContentUnavailableView(
                     "No Headings",
                     systemImage: "list.bullet.indent",
-                    description: Text("Add Markdown headings to build an outline.")
+                    description: Text(
+                        document.format == .html
+                            ? "Add heading elements to build an outline."
+                            : "Add Markdown headings to build an outline."
+                    )
                 )
             } else {
                 ScrollView {
@@ -69,14 +73,14 @@ struct TableOfContentsView: View {
     }
 
     private func expandAncestors(of id: String) {
-        guard let block = document.parsed.blocks.first(where: { $0.id == id }) else { return }
+        guard let block = document.structuralBlocks.first(where: { $0.id == id }) else { return }
         document.preferences.collapsedHeadingIDs.subtract(block.ancestorHeadingIDs)
     }
 
     private func readingCounts(for headingID: String) -> (unread: Int, changed: Int) {
         var unread = 0
         var changed = 0
-        for block in document.parsed.blocks
+        for block in document.structuralBlocks
         where block.id == headingID || block.ancestorHeadingIDs.contains(headingID) {
             switch document.readingStatus(for: block) {
             case .read: break
@@ -89,7 +93,7 @@ struct TableOfContentsView: View {
 
     private func attentionCount(for headingID: String) -> Int {
         let sectionBlockIDs = Set(
-            document.parsed.blocks
+            document.structuralBlocks
                 .filter { $0.id == headingID || $0.ancestorHeadingIDs.contains(headingID) }
                 .map(\.id)
         )
@@ -256,7 +260,7 @@ struct ReferenceGraphView: View {
     @State private var gesturePan: CGSize = .zero
     @AppStorage("graphListExpanded") private var listExpanded = true
 
-    private var references: [MarkdownReference] { document.parsed.references }
+    private var references: [MarkdownReference] { document.references }
     private var referenceKey: String { references.map(\.id).joined(separator: "\u{1}") }
     private var accent: Color { document.preferences.theme.accent.color }
 
@@ -267,9 +271,13 @@ struct ReferenceGraphView: View {
 
             if references.isEmpty {
                 ContentUnavailableView(
-                    "No Markdown Links",
+                    "No Local Links",
                     systemImage: "point.3.connected.trianglepath.dotted",
-                    description: Text("Relative .md links and [[wiki links]] appear here.")
+                    description: Text(
+                        document.format == .html
+                            ? "Relative links to .md and .html files appear here."
+                            : "Relative .md links and [[wiki links]] appear here."
+                    )
                 )
             } else {
                 canvas

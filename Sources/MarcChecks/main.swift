@@ -26,6 +26,7 @@ struct MarcChecks {
         try checkGraphLayout()
         try checkReadingAlignment()
         try checkHTMLStructure()
+        try checkReadingScrollTracker()
         print("All marc parser checks passed.")
     }
 
@@ -664,6 +665,97 @@ struct MarcChecks {
         try require(DocumentFormat.of(URL(fileURLWithPath: "/a/b.md")) == .markdown, "md was not Markdown")
         try require(DocumentFormat.of(URL(fileURLWithPath: "/a/b.HTML")) == .html, "HTML was not html")
         try require(DocumentFormat.of(URL(fileURLWithPath: "/a/b.txt")) == nil, "txt is not a marc document")
+    }
+
+    private static func checkReadingScrollTracker() throws {
+        let ids = (0..<10).map { "b\($0)" }
+        let viewport: CGFloat = 600
+        let blockHeight: CGFloat = 200
+
+        /// Frames for every block when the document is scrolled by `offset`.
+        func frames(offset: CGFloat) -> [String: ReadingScrollTracker.Frame] {
+            var result: [String: ReadingScrollTracker.Frame] = [:]
+            for (index, id) in ids.enumerated() {
+                let top = CGFloat(index) * blockHeight - offset
+                // Only blocks near the viewport are laid out, as in a lazy stack.
+                guard top < viewport + 400, top + blockHeight > -400 else { continue }
+                result[id] = ReadingScrollTracker.Frame(minY: top, maxY: top + blockHeight)
+            }
+            return result
+        }
+
+        var tracker = ReadingScrollTracker()
+        for _ in 0..<5 {
+            let opened = tracker.advance(
+                blockIDs: ids,
+                frames: frames(offset: 0),
+                viewportHeight: viewport
+            )
+            try require(
+                opened.read.isEmpty,
+                "Opening a document should not retire passages until it is scrolled"
+            )
+        }
+
+        var everRead: Set<String> = []
+        for offset in stride(from: CGFloat(0), through: 1400, by: 350) {
+            let update = tracker.advance(
+                blockIDs: ids,
+                frames: frames(offset: offset),
+                viewportHeight: viewport
+            )
+            everRead.formUnion(update.read)
+        }
+        try require(
+            everRead.isSuperset(of: ["b0", "b1", "b2", "b3"]),
+            "Scrolling past a run of passages should retire all of them, not only one"
+        )
+
+        // A fast scroll skips straight past several screens at once.
+        var fast = ReadingScrollTracker()
+        _ = fast.advance(blockIDs: ids, frames: frames(offset: 0), viewportHeight: viewport)
+        let jumped = fast.advance(blockIDs: ids, frames: frames(offset: 1200), viewportHeight: viewport)
+        try require(
+            jumped.read.contains("b0"),
+            "A passage dropped from layout during a fast scroll should still be retired"
+        )
+
+        // An outline jump lands deep in the document without displaying the
+        // pages in between, which must stay unread.
+        var jumper = ReadingScrollTracker()
+        let landed = jumper.advance(
+            blockIDs: ids,
+            frames: frames(offset: 1200),
+            viewportHeight: viewport
+        )
+        try require(
+            landed.read.isEmpty,
+            "Jumping into a document should not retire the passages that were skipped"
+        )
+        let afterNudge = jumper.advance(
+            blockIDs: ids,
+            frames: frames(offset: 1500),
+            viewportHeight: viewport
+        )
+        try require(
+            !afterNudge.read.contains("b0") && !afterNudge.read.contains("b3"),
+            "Passages above an outline jump should stay unread after scrolling on"
+        )
+
+        var line = ReadingScrollTracker()
+        let resting = line.advance(blockIDs: ids, frames: frames(offset: 0), viewportHeight: viewport)
+        try require(
+            resting.atReadingLine == "b1",
+            "The block crossing the reading line was not identified"
+        )
+        try require(
+            line.advance(blockIDs: ids, frames: [:], viewportHeight: viewport).read.isEmpty,
+            "Reporting no frames should retire nothing"
+        )
+        try require(
+            line.advance(blockIDs: ids, frames: frames(offset: 0), viewportHeight: 0).read.isEmpty,
+            "A zero-height viewport should retire nothing"
+        )
     }
 
     private static func checkReferences() throws {

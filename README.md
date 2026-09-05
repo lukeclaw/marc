@@ -1,11 +1,13 @@
 # marc
 
-marc is a native macOS Markdown workspace built for reading and editing long,
-AI-generated Markdown documents.
+marc is a native macOS workspace built for reading and editing long,
+AI-generated documents, in Markdown and in HTML.
 
 ## Features
 
 - Native `.md` document registration, suitable for use as the default Markdown app
+- First-class `.html` documents: outline, reading progress, link graph, and tabs,
+  rendered in a web view with no network access until you allow it per file
 - Rendered, source, and split views
 - New Markdown files from the File menu (⌘N), toolbar, welcome screen, tab bar, project group, or a missing link
 - Per-file themes stored without changing the Markdown file
@@ -23,7 +25,7 @@ AI-generated Markdown documents.
 - Persistent high-contrast document scrollbars for light and dark themes
 - Linked-Markdown graph, closed by default, with pan, zoom, and a resizable panel
 - Automatic refresh when an external tool or AI agent changes an open file
-- Local Markdown link and wiki-link navigation
+- Local Markdown, wiki-link, and HTML link navigation across both formats
 - A View menu for panels, outline placement, and document view mode
 - Find, recent files, drag-and-drop opening, and keyboard shortcuts
 
@@ -76,7 +78,8 @@ Build and move `dist/marc.app` to `/Applications`, then:
 
 macOS will then route Markdown files to marc.
 
-See [SPEC.md](SPEC.md) for the product and implementation plan and
+See [SPEC.md](SPEC.md) for the product and implementation plan,
+[HTML-SUPPORT-SPEC.md](HTML-SUPPORT-SPEC.md) for the HTML document design, and
 [future-direction.md](future-direction.md) for the roadmap. The click-triggered
 local embeddings beta is specified in
 [ON-DEMAND-ATTENTION-ANALYSIS-SPEC.md](ON-DEMAND-ATTENTION-ANALYSIS-SPEC.md).

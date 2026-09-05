@@ -176,6 +176,14 @@ struct FilePreferences: Codable, Equatable {
     var tableColumnWidths: [String: [Double]]?
     var tableWidthLayoutVersion: Int?
     var readingState: ReadingState?
+
+    /// Per-file trust for HTML documents. Both default to closed: a page runs
+    /// its own scripts only once the reader allows it, and reaches the network
+    /// only after that is allowed separately.
+    var htmlAllowsScripts: Bool?
+    var htmlAllowsNetwork: Bool?
+    /// Overrides marc's guess at whether a page is a document or an app.
+    var htmlShape: String?
 }
 
 extension Color {

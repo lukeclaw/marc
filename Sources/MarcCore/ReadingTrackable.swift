@@ -11,6 +11,8 @@ public protocol ReadingTrackableBlock {
     var readingIdentity: ReadingBlockIdentity { get }
     /// Decorative content, such as a rule or a spacer, carries no reading state.
     var isReadingTrackable: Bool { get }
+    /// Headings enclosing this block, outermost first.
+    var ancestorHeadingIDs: [String] { get }
 }
 
 extension MarkdownBlock: ReadingTrackableBlock {

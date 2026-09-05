@@ -1,4 +1,5 @@
 import AppKit
+import MarcCore
 import SwiftUI
 
 /// marc manages its own in-app tabs, so macOS window tabbing is turned off.
@@ -31,9 +32,14 @@ struct MarcApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("New Markdown File…") {
-                    store.newDocument()
+                    store.newDocument(format: .markdown)
                 }
                 .keyboardShortcut("n")
+
+                Button("New HTML File…") {
+                    store.newDocument(format: .html)
+                }
+                .keyboardShortcut("n", modifiers: [.command, .option])
 
                 Button("Open…") {
                     store.showOpenPanel()

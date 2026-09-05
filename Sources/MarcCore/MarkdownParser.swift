@@ -74,6 +74,16 @@ public struct ParsedMarkdown {
     public let blocks: [MarkdownBlock]
     public let headings: [MarkdownHeading]
     public let references: [MarkdownReference]
+
+    public init(
+        blocks: [MarkdownBlock] = [],
+        headings: [MarkdownHeading] = [],
+        references: [MarkdownReference] = []
+    ) {
+        self.blocks = blocks
+        self.headings = headings
+        self.references = references
+    }
 }
 
 public enum MarkdownParser {

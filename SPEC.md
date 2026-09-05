@@ -2,8 +2,8 @@
 
 ## Product intent
 
-marc is a personal, native macOS Markdown editor and reader optimized for
-documents produced by AI agents. Its primary job is to turn large, structurally
+marc is a personal, native macOS Markdown and HTML editor and reader optimized
+for documents produced by AI agents. Its primary job is to turn large, structurally
 dense Markdown files into calm, navigable reading experiences without taking
 away direct access to the source.
 
@@ -13,7 +13,8 @@ outside the document.
 
 ## Goals
 
-1. Behave like a normal macOS application that can own `.md` files.
+1. Behave like a normal macOS application that can own `.md` files and open
+   `.html` files as first-class documents.
 2. Make long Markdown significantly easier to scan, navigate, and collapse.
 3. Allow each document to have its own visual identity.
 4. Make a collection of cross-referenced Markdown files easy to traverse.
@@ -26,15 +27,18 @@ outside the document.
 - Cloud sync, collaboration, or accounts
 - A plugin marketplace
 - Full CommonMark/GitHub Markdown parity
-- Rendering arbitrary embedded HTML or executing document code
+- Rendering arbitrary embedded HTML inside a Markdown document
+- Running an HTML document as a general-purpose browser tab
 
 ## Core user experience
 
 ### Opening and document ownership
 
-marc declares itself an Editor for Markdown content types in its app bundle.
-Files can be opened through Finder, the Open panel, drag and drop, Markdown links,
-wiki links, or recent-file shortcuts. Multiple files appear as tabs in one
+marc declares itself an Editor for Markdown content types in its app bundle, and
+an alternate Editor for HTML, so it appears under Open With for `.html` without
+taking those files from the browser. Files can be opened through Finder, the Open
+panel, drag and drop, Markdown links, wiki links, HTML links, or recent-file
+shortcuts. Multiple files appear as tabs in one
 workspace. Open tab paths, order, and selection are persisted continuously and
 restored on the next launch; moved or deleted files are skipped.
 
@@ -128,6 +132,26 @@ updated content. The same state is aggregated into outline and tab badges, with
 previous/next navigation, a compact in-app status strip, and manual section or
 document read controls. No system notifications or permission prompts are used.
 
+### HTML documents
+
+HTML files open as documents, not as an embedded browser. Their outline, block
+identities, reading progress, link-graph membership, per-file settings, and
+external-change handling work the way they do for Markdown, because those
+features depend on structure rather than on Markdown itself. Structure is read
+from the HTML source, and a small injected reader reports where those same
+elements sit on screen so navigation and reading progress track the rendered
+page.
+
+Pages that are applications rather than documents are recognized as such and get
+no reading progress, since unread counts over a page with no prose are noise.
+The classification is shown and can be overridden per file.
+
+The page is loaded with read access limited to its own folder, in a data store
+that does not outlive the tab, with all network access blocked until allowed for
+that file, and with navigation away from the file refused. The page's own colors
+and fonts are left alone. The full design is in
+[HTML-SUPPORT-SPEC.md](HTML-SUPPORT-SPEC.md).
+
 ### On-demand attention analysis
 
 An explicitly requested local analysis can rank sections likely to be urgent,
@@ -175,12 +199,16 @@ marc uses SwiftUI with selective AppKit integration:
 - `DocumentStore`: open tabs, selection, recent files, persistence, and errors
 - `DocumentGroup`: project grouping, collapse state, ordering, and folder rules
 - `MarkdownDocument`: file contents, dirty state, external-change monitoring
-- `MarcCore`: lightweight structural block parser and reference extraction
+- `MarcCore`: lightweight structural block parsers and reference extraction
+- `HTMLParser`: heading, block, reference, and page-shape extraction from HTML
+- `HTMLPreview`: sandboxed web view and the reader bridge that reports positions
+- `DocumentFormat`: the file kinds marc opens as documents
 - `AttentionAnalyzer`: local semantic chunking, Apple embeddings, and reviewed
   attention profiles
 - `SyntaxHighlighter`: dependency-free lexical highlighting and language aliases
 - `ReferenceGraphLayout`: deterministic, non-overlapping ring layout for the graph
 - `ReadingAlignment`: matches a document's blocks against their previous revision
+- `ReadingScrollTracker`: turns block positions on screen into reading progress
 - `WorkspaceView`: tabs, sidebars, toolbar, reader/editor composition
 - `MarkdownPreview`: themed structural rendering and fold state
 - `ThemeStore`: per-file presentation preferences in Application Support
@@ -195,7 +223,9 @@ Markdown uses Foundation's Markdown attributed-string support.
 - No network access is required.
 - Optional intelligence must be explicitly requested and use an approved local
   model; version 1 has no network provider.
-- Markdown is only written after direct edits in the source editor.
+- Markdown and HTML are only written after direct edits in the source editor.
+- HTML documents cannot reach the network until allowed for that file, cannot
+  read outside their own folder, and cannot navigate away from themselves.
 - Presentation settings are stored separately as JSON.
 - External changes never overwrite a dirty in-memory edit.
 - Referenced files are resolved relative to the current file.
@@ -238,7 +268,9 @@ Markdown uses Foundation's Markdown attributed-string support.
 - `swift build` and `swift run marc-checks` succeed.
 - The packaged app opens as a standard `.app`.
 - Its `Info.plist` declares Markdown Editor support.
-- Opening several Markdown files creates selectable, closeable tabs.
+- Opening several Markdown or HTML files creates selectable, closeable tabs.
+- An HTML document produces an outline, a link graph entry, and reading marks.
+- An HTML document loads no external resource until it is allowed for that file.
 - Tabs can be grouped, collapsed, reordered, sorted, and restored across launches.
 - A document with headings produces a navigable table of contents.
 - Collapsing a heading hides its section and nested sections.
