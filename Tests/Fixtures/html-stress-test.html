@@ -1,0 +1,932 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>marc HTML stress test &amp; reader alignment</title>
+<link rel="stylesheet" href="https://example.com/blocked-remote.css">
+<style>
+  :root {
+    --ink: #16181d;
+    --dim: #5d636e;
+    --line: #dfe2e8;
+    --paper: #fbfbfa;
+    --panel: #f2f3f5;
+    --accent: #2f6f4f;
+    --warn: #a33a20;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #e8e9ec; --dim: #9aa1ad; --line: #33373f;
+      --paper: #16181d; --panel: #1e2128; --accent: #7fc4a0; --warn: #e08a6b;
+    }
+  }
+  html { background: var(--paper); }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font: 16px/1.65 -apple-system, system-ui, "Helvetica Neue", sans-serif;
+  }
+  main { max-width: 46rem; margin: 0 auto; padding: 3rem 1.5rem 8rem; }
+  h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 .5rem; letter-spacing: -.02em; }
+  h2 { font-size: 1.35rem; margin: 3.5rem 0 .75rem; padding-top: .75rem; border-top: 1px solid var(--line); }
+  h3 { font-size: 1.05rem; margin: 2rem 0 .5rem; }
+  h4, h5, h6 { font-size: .95rem; margin: 1.25rem 0 .4rem; color: var(--dim); }
+  p { margin: 0 0 1rem; }
+  .note { color: var(--dim); font-size: .875rem; }
+  .expect { border-left: 3px solid var(--accent); padding: .1rem 0 .1rem .9rem; margin: 0 0 1rem; color: var(--dim); font-size: .875rem; }
+  code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { font-size: .85em; background: var(--panel); padding: .1em .35em; border-radius: 3px; }
+  pre { background: var(--panel); padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: .8rem; line-height: 1.5; }
+  blockquote { margin: 0 0 1rem; padding-left: 1rem; border-left: 3px solid var(--line); color: var(--dim); }
+  table { border-collapse: collapse; width: 100%; margin: 0 0 1rem; font-size: .875rem; }
+  th, td { border: 1px solid var(--line); padding: .4rem .6rem; text-align: left; }
+  figure { margin: 0 0 1rem; }
+  figcaption { color: var(--dim); font-size: .8rem; margin-top: .4rem; }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 2rem 0; }
+  .scroller { overflow-x: auto; max-width: 100%; }
+  .tall { height: 2400px; background: linear-gradient(var(--panel), var(--paper)); border: 1px dashed var(--line); border-radius: 6px; }
+  .sticky { position: sticky; top: 0; background: var(--paper); z-index: 2; }
+  .fixed-badge { position: fixed; right: 1rem; bottom: 1rem; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: .3rem .8rem; font-size: .75rem; color: var(--dim); z-index: 3; }
+  .hidden-block { display: none; }
+  .zero-height { height: 0; overflow: hidden; margin: 0; }
+  canvas, iframe, video { max-width: 100%; border: 1px solid var(--line); border-radius: 6px; display: block; }
+  form { border: 1px solid var(--line); border-radius: 6px; padding: 1rem; margin: 0 0 1rem; }
+  input, select, textarea, button { font: inherit; }
+  .report { border: 1px solid var(--line); border-radius: 8px; padding: 1rem; background: var(--panel); font-size: .8rem; }
+  .report-row { display: flex; gap: .75rem; font-family: ui-monospace, Menlo, monospace; padding: .1rem 0; }
+  .report-row span:first-child { color: var(--dim); min-width: 3.5rem; text-align: right; }
+  .bad { color: var(--warn); font-weight: 600; }
+  .good { color: var(--accent); font-weight: 600; }
+  .marker { outline: 2px solid var(--accent); outline-offset: 3px; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>marc HTML stress test</h1>
+
+<p>This page exercises every part of marc's HTML reader that can be exercised
+from a well-formed document: the outline, block identity, the reading bridge,
+the link graph, the external-resource prompt, and the scroll tracker. Nothing
+here is malformed. Everything here should work.</p>
+
+<p class="expect">The companion file <code>html-stress-torture.html</code> holds
+the malformed cases, which are expected to break. Keep the two apart so a
+failure in one does not hide a failure in the other.</p>
+
+<p class="note">The last section of this page reports whether the DOM walker in
+<code>HTMLPreview.swift</code> found the same blocks, in the same order, as the
+source parser in <code>HTMLStructure.swift</code>. That is the invariant the
+whole feature rests on: ordinal 7 in the source must be element 7 on screen.</p>
+
+<h2 id="outline">1. Outline</h2>
+
+<p>Six heading levels, one skipped level, one climb back up, and repeated
+titles. The outline panel should mirror this nesting exactly, and every entry
+should scroll to its own heading.</p>
+
+<h3>1.1 Ordinary nesting</h3>
+<p>A third-level heading under a second-level one.</p>
+
+<h4>1.1.1 Fourth level</h4>
+<p>A fourth-level heading.</p>
+
+<h5>Fifth level</h5>
+<p>A fifth-level heading.</p>
+
+<h6>Sixth level</h6>
+<p>A sixth-level heading. The outline should not run out of depth here.</p>
+
+<h3>1.2 A skipped level</h3>
+<p>The next heading is an <code>h5</code>, skipping <code>h4</code>. The
+outline should indent it under this one rather than dropping it.</p>
+
+<h5>1.2.1 Jumped straight to five</h5>
+<p>Content under the jumped heading.</p>
+
+<h3>Notes</h3>
+<p>The first heading called "Notes". Its slug should be <code>notes</code>.</p>
+
+<h3>Notes</h3>
+<p>The second heading called "Notes". Its slug should be <code>notes-2</code>,
+and the outline should navigate to this one, not back to the first.</p>
+
+<h2 id="kinds">2. Every tracked block kind</h2>
+
+<p class="expect">The parser tracks sixteen kinds of element. Each one appears
+once below, well-formed and closed. Each should be one block, and each should
+take a reading mark.</p>
+
+<p>A paragraph, which is the ordinary case.</p>
+
+<pre><code>preformatted text
+    with indentation preserved
+    and a &lt;tag&gt; that is escaped, so it is text and not markup</code></pre>
+
+<blockquote>A block quote. Its text should be flattened into a single block,
+with the inline markup dropped.</blockquote>
+
+<table>
+  <caption>A table with a caption</caption>
+  <thead><tr><th>Region</th><th>p99</th></tr></thead>
+  <tbody>
+    <tr><td>eu-west</td><td>212 ms</td></tr>
+    <tr><td>us-east</td><td>240 ms</td></tr>
+  </tbody>
+</table>
+
+<ul>
+  <li>An unordered list</li>
+  <li>with two items</li>
+</ul>
+
+<ol>
+  <li>An ordered list</li>
+  <li>with two items</li>
+</ol>
+
+<dl>
+  <dt>A definition list</dt>
+  <dd>with one definition.</dd>
+</dl>
+
+<figure>
+  <img src="data:image/svg+xml;utf8,&lt;svg xmlns='http://www.w3.org/2000/svg' width='320' height='90'&gt;&lt;rect width='320' height='90' fill='%23dfe2e8'/&gt;&lt;text x='16' y='52' font-family='monospace' font-size='16' fill='%235d636e'&gt;inline data: URI image&lt;/text&gt;&lt;/svg&gt;" alt="A chart rendered from an inline data URI">
+  <figcaption>A figure with an image and a caption. The figure is the block;
+  the image inside it is not a second one.</figcaption>
+</figure>
+
+<hr>
+
+<p>An image that stands on its own, outside any figure. Its alt text is the
+only text the parser has for it.</p>
+
+<img src="data:image/svg+xml;utf8,&lt;svg xmlns='http://www.w3.org/2000/svg' width='320' height='60'&gt;&lt;rect width='320' height='60' fill='%23dfe2e8'/&gt;&lt;/svg&gt;" alt="A standalone image whose alt text is its block text" width="320" height="60">
+
+<p>A canvas that a script draws into. Reading progress should still treat it as
+one block even though it has no text at all.</p>
+
+<canvas id="stress-canvas" width="640" height="140"></canvas>
+
+<p>Inline SVG, which is a tracked block in its own right.</p>
+
+<svg width="320" height="70" role="img" aria-label="Three bars">
+  <rect x="0" y="30" width="60" height="40" fill="#2f6f4f"></rect>
+  <rect x="80" y="10" width="60" height="60" fill="#2f6f4f"></rect>
+  <rect x="160" y="45" width="60" height="25" fill="#2f6f4f"></rect>
+</svg>
+
+<p>An iframe with its content inline, so it needs nothing from the network.</p>
+
+<iframe title="An inline frame" width="320" height="80" srcdoc="&lt;p style='font:14px system-ui;color:#5d636e'&gt;Content inside an inline frame.&lt;/p&gt;"></iframe>
+
+<p>A video and an audio element, both with no source, so neither reaches the
+network. Both are tracked blocks.</p>
+
+<video controls width="320" height="90"></video>
+
+<audio controls></audio>
+
+<p>A form with several controls. A page with more than four interactive
+elements risks being classified as an app, so this page carries enough prose to
+outweigh them.</p>
+
+<form>
+  <label>Query <input name="q" type="text" placeholder="search"></label>
+  <label>Scope
+    <select name="scope"><option>All</option><option>Open</option></select>
+  </label>
+  <label>Notes <textarea name="notes" rows="2"></textarea></label>
+  <button type="button">Run</button>
+</form>
+
+<h2 id="nesting">3. Nesting</h2>
+
+<p class="expect">A tracked element inside another tracked element belongs to
+the outer one. Every group below should count as exactly one block, and the DOM
+walker's <code>closest()</code> filter should agree with the source parser's
+depth tracking.</p>
+
+<h3>3.1 A list inside a list</h3>
+<ul>
+  <li>First level
+    <ul>
+      <li>Second level
+        <ol>
+          <li>Third level, a different list type</li>
+          <li>Still the same block</li>
+        </ol>
+      </li>
+    </ul>
+  </li>
+  <li>Back at the first level</li>
+</ul>
+
+<h3>3.2 A table inside a figure</h3>
+<figure>
+  <table>
+    <tr><th>Nested</th><th>Count</th></tr>
+    <tr><td>Tables in figures</td><td>1</td></tr>
+  </table>
+  <figcaption>The figure is the block. The table inside it is not.</figcaption>
+</figure>
+
+<h3>3.3 A quote inside a quote</h3>
+<blockquote>
+  The outer quote.
+  <blockquote>The inner quote, which is the same tag nested in itself. The
+  parser's depth check has to close the right one.</blockquote>
+  Back in the outer quote.
+</blockquote>
+
+<h3>3.4 A table and a list inside a form</h3>
+<form>
+  <table>
+    <tr><td>Row</td><td><input name="r1" type="checkbox"></td></tr>
+    <tr><td>Another row</td><td><input name="r2" type="checkbox"></td></tr>
+  </table>
+  <ul><li>A list inside the same form</li></ul>
+  <button type="button">Also inside the form</button>
+</form>
+
+<h3>3.5 A paragraph inside a list item</h3>
+<ul>
+  <li><p>A paragraph nested in a list item.</p></li>
+  <li><p>A second one, with a <code>pre</code> after it.</p>
+    <pre>preformatted, inside a list item</pre>
+  </li>
+</ul>
+
+<h2 id="identity">4. Block identity</h2>
+
+<p class="expect">Identity comes from a hash of the block's text, so identical
+blocks need disambiguating suffixes and must still be unique. Five identical
+paragraphs and three identical headings follow.</p>
+
+<p>The same paragraph, repeated verbatim.</p>
+<p>The same paragraph, repeated verbatim.</p>
+<p>The same paragraph, repeated verbatim.</p>
+<p>The same paragraph, repeated verbatim.</p>
+<p>The same paragraph, repeated verbatim.</p>
+
+<h3>Repeated heading</h3>
+<p>Under the first.</p>
+<h3>Repeated heading</h3>
+<p>Under the second.</p>
+<h3>Repeated heading</h3>
+<p>Under the third. All three should appear in the outline, each scrolling to
+its own position.</p>
+
+<h3>4.1 Whitespace that should collapse</h3>
+
+<p>This     paragraph        has
+runs      of      spaces,
+newlines     between      words,
+and	tabs, all of which should collapse to single spaces before the block's
+signature is taken. Reflowing this text without changing its words must not
+change its identity.</p>
+
+<h3>4.2 Entities and inline markup</h3>
+
+<p>Inline <strong>bold</strong>, <em>italic</em>, <code>code</code>,
+<a href="#outline">a link</a>, and a <span>span</span> should all flatten away,
+leaving only the text.</p>
+
+<p>Entity references, written out: &amp; &lt; &gt; &quot; &#39; &apos;
+and&nbsp;a non-breaking space, then named ones — &mdash; &hellip; &copy; — and
+numeric ones — &#8212; &#x2192;. Each should reach the block's text as the
+character it stands for. Doubled forms, and names the reader has never heard of,
+belong in the torture file.</p>
+
+<h3>4.3 Text that is not English</h3>
+
+<p>Japanese: 遅延の中央値は240ミリ秒でした。</p>
+<p>Arabic, right to left: زمن الاستجابة كان مقبولاً.</p>
+<p>Combining marks, written as characters rather than entities: élévation. A family emoji: 👩‍👩‍👧‍👦. A flag: 🇯🇵. Entities outside the seven the reader decodes belong in the torture file.</p>
+<p>A single unbroken string, which should not widen the page:
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</p>
+
+<h2 id="links">5. Links and the graph</h2>
+
+<p class="expect">Four of the links below are graph edges: they point at local
+Markdown or HTML files. The rest are not. Activating a graph edge should open a
+marc tab; activating an external link should ask before going to the browser;
+activating an anchor should scroll this page without navigating it.</p>
+
+<ul>
+  <li>A Markdown sibling: <a href="stress-notes.md">stress-notes.md</a></li>
+  <li>An HTML sibling: <a href="stress-appendix.html">stress-appendix.html</a></li>
+  <li>The same Markdown file again, which should not add a second edge:
+    <a href="stress-notes.md">stress-notes.md</a></li>
+  <li>A Markdown file with a fragment, which is the same file:
+    <a href="stress-notes.md#stress-notes">stress-notes.md#stress-notes</a></li>
+  <li>A file one folder up: <a href="../SPEC.md">../SPEC.md</a></li>
+  <li>A file that does not exist: <a href="missing-file.md">missing-file.md</a></li>
+</ul>
+
+<p>Links that are not graph edges:</p>
+
+<ul>
+  <li>An anchor on this page: <a href="#outline">back to section 1</a></li>
+  <li>An external page: <a href="https://example.com/">example.com</a></li>
+  <li>A mail address: <a href="mailto:nobody@example.com">nobody@example.com</a></li>
+  <li>A file marc does not open: <a href="notes.txt">notes.txt</a></li>
+  <li>An anchor with no href at all: <a>no destination</a></li>
+</ul>
+
+<h2 id="network">6. External resources</h2>
+
+<p class="expect">This page asks for four remote things: a stylesheet in the
+head, an image, a script, and a frame. The document bar should offer to allow
+them for this file, and until it does, all four should fail without the page
+falling over. Nothing on this page needs them to be readable.</p>
+
+<p>A remote image, which should render broken while the network is blocked:</p>
+
+<img src="https://example.com/blocked-chart.png" alt="A remote image that the network policy should block" width="320" height="60">
+
+<p>A remote frame, which should stay empty:</p>
+
+<iframe title="A remote frame" src="https://example.com/blocked-frame" width="320" height="60"></iframe>
+
+<script src="https://example.com/blocked-script.js"></script>
+
+<h2 id="layout">7. Layout and the scroll tracker</h2>
+
+<p class="expect">The reading bridge reports each block's rectangle. These are
+the rectangles that are awkward: taller than the viewport, stuck to the top,
+zero-height, hidden outright, and inside a scrolling container.</p>
+
+<h3>7.1 A block taller than the viewport</h3>
+
+<p>The block below is 2400 pixels tall. It should not be marked read the moment
+its top edge appears, and it should not stay unread after it has been scrolled
+all the way through.</p>
+
+<figure class="tall">
+  <figcaption>A very tall figure. Scroll through it slowly and watch whether the
+  reading mark lands at the right time.</figcaption>
+</figure>
+
+<h3>7.2 A sticky heading</h3>
+
+<div class="sticky"><h4>This heading sticks to the top while you scroll</h4></div>
+
+<p>A sticky element keeps reporting a rectangle at the top of the viewport for
+as long as it is stuck. If the tracker uses a reading line near the top, this is
+the block most likely to be marked read wrongly, or to hold the reading line
+against blocks that scroll past underneath it.</p>
+
+<h3>7.3 Zero-height and hidden blocks</h3>
+
+<p>The next paragraph has zero height. The one after it is hidden with
+<code>display: none</code>, so its rectangle is all zeros, which reads as a
+block sitting at the very top of the viewport.</p>
+
+<p class="zero-height">A paragraph with no height.</p>
+
+<p class="hidden-block">A paragraph that is not displayed at all. The source
+parser counts it, because it is in the source. The DOM walker also counts it,
+because it is in the DOM. Whether it should ever be marked read is the
+question.</p>
+
+<h3>7.4 A block inside a scrolling container</h3>
+
+<div class="scroller">
+  <table>
+    <tr><th>Column A</th><th>Column B</th><th>Column C</th><th>Column D</th><th>Column E</th><th>Column F</th><th>Column G</th><th>Column H</th></tr>
+    <tr><td>Wide enough</td><td>to scroll</td><td>sideways</td><td>inside</td><td>its own</td><td>container</td><td>without</td><td>widening the page</td></tr>
+  </table>
+</div>
+
+<p>The table above scrolls horizontally inside a container. The page itself
+should never scroll sideways.</p>
+
+<h2 id="longtail">8. A long tail</h2>
+
+<p class="expect">One hundred and twenty numbered paragraphs, with a heading
+every twenty. This is the section that tests reading progress, the status strip,
+the outline over a long document, and whether the ±3000px cull in the reader
+script loses blocks on a fast scroll. Every paragraph is numbered, so an
+off-by-one in the ordinals is visible by eye.</p>
+
+<h3>8.1 Paragraphs 1 to 20</h3>
+<p>Paragraph 001. The queue held steady through the run, and this sentence exists to give paragraph 001 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 002. The retry held steady through the run, and this sentence exists to give paragraph 002 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 003. The cache held steady through the run, and this sentence exists to give paragraph 003 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 004. The index held steady through the run, and this sentence exists to give paragraph 004 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 005. The shard held steady through the run, and this sentence exists to give paragraph 005 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 006. The replica held steady through the run, and this sentence exists to give paragraph 006 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 007. The budget held steady through the run, and this sentence exists to give paragraph 007 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 008. The window held steady through the run, and this sentence exists to give paragraph 008 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 009. The cursor held steady through the run, and this sentence exists to give paragraph 009 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 010. The digest held steady through the run, and this sentence exists to give paragraph 010 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 011. The anchor held steady through the run, and this sentence exists to give paragraph 011 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 012. The latency held steady through the run, and this sentence exists to give paragraph 012 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 013. The queue held steady through the run, and this sentence exists to give paragraph 013 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 014. The retry held steady through the run, and this sentence exists to give paragraph 014 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 015. The cache held steady through the run, and this sentence exists to give paragraph 015 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 016. The index held steady through the run, and this sentence exists to give paragraph 016 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 017. The shard held steady through the run, and this sentence exists to give paragraph 017 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 018. The replica held steady through the run, and this sentence exists to give paragraph 018 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 019. The budget held steady through the run, and this sentence exists to give paragraph 019 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 020. The window held steady through the run, and this sentence exists to give paragraph 020 enough height to be scrolled past rather than skipped over in a single frame.</p>
+
+<h3>8.2 Paragraphs 21 to 40</h3>
+<p>Paragraph 021. The cursor held steady through the run, and this sentence exists to give paragraph 021 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 022. The digest held steady through the run, and this sentence exists to give paragraph 022 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 023. The anchor held steady through the run, and this sentence exists to give paragraph 023 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 024. The latency held steady through the run, and this sentence exists to give paragraph 024 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 025. The queue held steady through the run, and this sentence exists to give paragraph 025 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 026. The retry held steady through the run, and this sentence exists to give paragraph 026 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 027. The cache held steady through the run, and this sentence exists to give paragraph 027 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 028. The index held steady through the run, and this sentence exists to give paragraph 028 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 029. The shard held steady through the run, and this sentence exists to give paragraph 029 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 030. The replica held steady through the run, and this sentence exists to give paragraph 030 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 031. The budget held steady through the run, and this sentence exists to give paragraph 031 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 032. The window held steady through the run, and this sentence exists to give paragraph 032 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 033. The cursor held steady through the run, and this sentence exists to give paragraph 033 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 034. The digest held steady through the run, and this sentence exists to give paragraph 034 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 035. The anchor held steady through the run, and this sentence exists to give paragraph 035 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 036. The latency held steady through the run, and this sentence exists to give paragraph 036 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 037. The queue held steady through the run, and this sentence exists to give paragraph 037 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 038. The retry held steady through the run, and this sentence exists to give paragraph 038 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 039. The cache held steady through the run, and this sentence exists to give paragraph 039 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 040. The index held steady through the run, and this sentence exists to give paragraph 040 enough height to be scrolled past rather than skipped over in a single frame.</p>
+
+<h3>8.3 Paragraphs 41 to 60</h3>
+<p>Paragraph 041. The shard held steady through the run, and this sentence exists to give paragraph 041 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 042. The replica held steady through the run, and this sentence exists to give paragraph 042 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 043. The budget held steady through the run, and this sentence exists to give paragraph 043 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 044. The window held steady through the run, and this sentence exists to give paragraph 044 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 045. The cursor held steady through the run, and this sentence exists to give paragraph 045 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 046. The digest held steady through the run, and this sentence exists to give paragraph 046 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 047. The anchor held steady through the run, and this sentence exists to give paragraph 047 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 048. The latency held steady through the run, and this sentence exists to give paragraph 048 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 049. The queue held steady through the run, and this sentence exists to give paragraph 049 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 050. The retry held steady through the run, and this sentence exists to give paragraph 050 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 051. The cache held steady through the run, and this sentence exists to give paragraph 051 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 052. The index held steady through the run, and this sentence exists to give paragraph 052 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 053. The shard held steady through the run, and this sentence exists to give paragraph 053 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 054. The replica held steady through the run, and this sentence exists to give paragraph 054 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 055. The budget held steady through the run, and this sentence exists to give paragraph 055 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 056. The window held steady through the run, and this sentence exists to give paragraph 056 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 057. The cursor held steady through the run, and this sentence exists to give paragraph 057 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 058. The digest held steady through the run, and this sentence exists to give paragraph 058 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 059. The anchor held steady through the run, and this sentence exists to give paragraph 059 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 060. The latency held steady through the run, and this sentence exists to give paragraph 060 enough height to be scrolled past rather than skipped over in a single frame.</p>
+
+<h3>8.4 Paragraphs 61 to 80</h3>
+<p>Paragraph 061. The queue held steady through the run, and this sentence exists to give paragraph 061 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 062. The retry held steady through the run, and this sentence exists to give paragraph 062 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 063. The cache held steady through the run, and this sentence exists to give paragraph 063 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 064. The index held steady through the run, and this sentence exists to give paragraph 064 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 065. The shard held steady through the run, and this sentence exists to give paragraph 065 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 066. The replica held steady through the run, and this sentence exists to give paragraph 066 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 067. The budget held steady through the run, and this sentence exists to give paragraph 067 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 068. The window held steady through the run, and this sentence exists to give paragraph 068 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 069. The cursor held steady through the run, and this sentence exists to give paragraph 069 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 070. The digest held steady through the run, and this sentence exists to give paragraph 070 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 071. The anchor held steady through the run, and this sentence exists to give paragraph 071 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 072. The latency held steady through the run, and this sentence exists to give paragraph 072 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 073. The queue held steady through the run, and this sentence exists to give paragraph 073 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 074. The retry held steady through the run, and this sentence exists to give paragraph 074 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 075. The cache held steady through the run, and this sentence exists to give paragraph 075 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 076. The index held steady through the run, and this sentence exists to give paragraph 076 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 077. The shard held steady through the run, and this sentence exists to give paragraph 077 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 078. The replica held steady through the run, and this sentence exists to give paragraph 078 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 079. The budget held steady through the run, and this sentence exists to give paragraph 079 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 080. The window held steady through the run, and this sentence exists to give paragraph 080 enough height to be scrolled past rather than skipped over in a single frame.</p>
+
+<h3>8.5 Paragraphs 81 to 100</h3>
+<p>Paragraph 081. The cursor held steady through the run, and this sentence exists to give paragraph 081 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 082. The digest held steady through the run, and this sentence exists to give paragraph 082 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 083. The anchor held steady through the run, and this sentence exists to give paragraph 083 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 084. The latency held steady through the run, and this sentence exists to give paragraph 084 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 085. The queue held steady through the run, and this sentence exists to give paragraph 085 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 086. The retry held steady through the run, and this sentence exists to give paragraph 086 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 087. The cache held steady through the run, and this sentence exists to give paragraph 087 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 088. The index held steady through the run, and this sentence exists to give paragraph 088 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 089. The shard held steady through the run, and this sentence exists to give paragraph 089 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 090. The replica held steady through the run, and this sentence exists to give paragraph 090 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 091. The budget held steady through the run, and this sentence exists to give paragraph 091 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 092. The window held steady through the run, and this sentence exists to give paragraph 092 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 093. The cursor held steady through the run, and this sentence exists to give paragraph 093 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 094. The digest held steady through the run, and this sentence exists to give paragraph 094 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 095. The anchor held steady through the run, and this sentence exists to give paragraph 095 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 096. The latency held steady through the run, and this sentence exists to give paragraph 096 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 097. The queue held steady through the run, and this sentence exists to give paragraph 097 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 098. The retry held steady through the run, and this sentence exists to give paragraph 098 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 099. The cache held steady through the run, and this sentence exists to give paragraph 099 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 100. The index held steady through the run, and this sentence exists to give paragraph 100 enough height to be scrolled past rather than skipped over in a single frame.</p>
+
+<h3>8.6 Paragraphs 101 to 120</h3>
+<p>Paragraph 101. The shard held steady through the run, and this sentence exists to give paragraph 101 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 102. The replica held steady through the run, and this sentence exists to give paragraph 102 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 103. The budget held steady through the run, and this sentence exists to give paragraph 103 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 104. The window held steady through the run, and this sentence exists to give paragraph 104 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 105. The cursor held steady through the run, and this sentence exists to give paragraph 105 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 106. The digest held steady through the run, and this sentence exists to give paragraph 106 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 107. The anchor held steady through the run, and this sentence exists to give paragraph 107 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 108. The latency held steady through the run, and this sentence exists to give paragraph 108 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 109. The queue held steady through the run, and this sentence exists to give paragraph 109 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 110. The retry held steady through the run, and this sentence exists to give paragraph 110 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 111. The cache held steady through the run, and this sentence exists to give paragraph 111 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 112. The index held steady through the run, and this sentence exists to give paragraph 112 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 113. The shard held steady through the run, and this sentence exists to give paragraph 113 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 114. The replica held steady through the run, and this sentence exists to give paragraph 114 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 115. The budget held steady through the run, and this sentence exists to give paragraph 115 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 116. The window held steady through the run, and this sentence exists to give paragraph 116 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 117. The cursor held steady through the run, and this sentence exists to give paragraph 117 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 118. The digest held steady through the run, and this sentence exists to give paragraph 118 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 119. The anchor held steady through the run, and this sentence exists to give paragraph 119 enough height to be scrolled past rather than skipped over in a single frame.</p>
+<p>Paragraph 120. The latency held steady through the run, and this sentence exists to give paragraph 120 enough height to be scrolled past rather than skipped over in a single frame.</p>
+
+<h2 id="alignment">9. Alignment report</h2>
+
+<p class="expect">The panel below walks the live DOM with the exact selector and
+filter the reader script uses, then compares the result against a snapshot of
+what the source parser produced for this same file. If the two ever disagree,
+every reading mark after the first disagreement is on the wrong block.</p>
+
+<p>The panel is built out of <code>div</code> and <code>span</code> elements
+only, so it adds no blocks of its own and does not change what it measures.</p>
+
+<div id="alignment-report" class="report">
+  <div class="mono">Running…</div>
+</div>
+
+<p class="note">Regenerate the snapshot after editing this file, otherwise the
+panel reports drift that is not real.</p>
+
+<div class="fixed-badge" id="scroll-badge">block —</div>
+
+<script>
+// What the source parser found for this file, as ["tag", "first 40 characters of
+// text"], in document order. Regenerate with scripts/html-alignment.sh --write
+// after editing this file.
+var PARSER_BLOCKS = /* SNAPSHOT */ [
+  ["h1", "marc HTML stress test"],
+  ["p", "This page exercises every part of marc's"],
+  ["p", "The companion file html-stress-torture.h"],
+  ["p", "The last section of this page reports wh"],
+  ["h2", "1. Outline"],
+  ["p", "Six heading levels, one skipped level, o"],
+  ["h3", "1.1 Ordinary nesting"],
+  ["p", "A third-level heading under a second-lev"],
+  ["h4", "1.1.1 Fourth level"],
+  ["p", "A fourth-level heading."],
+  ["h5", "Fifth level"],
+  ["p", "A fifth-level heading."],
+  ["h6", "Sixth level"],
+  ["p", "A sixth-level heading. The outline shoul"],
+  ["h3", "1.2 A skipped level"],
+  ["p", "The next heading is an h5, skipping h4. "],
+  ["h5", "1.2.1 Jumped straight to five"],
+  ["p", "Content under the jumped heading."],
+  ["h3", "Notes"],
+  ["p", "The first heading called \"Notes\". Its sl"],
+  ["h3", "Notes"],
+  ["p", "The second heading called \"Notes\". Its s"],
+  ["h2", "2. Every tracked block kind"],
+  ["p", "The parser tracks sixteen kinds of eleme"],
+  ["p", "A paragraph, which is the ordinary case."],
+  ["pre", "preformatted text with indentation prese"],
+  ["blockquote", "A block quote. Its text should be flatte"],
+  ["table", "A table with a caption Regionp99 eu-west"],
+  ["ul", "An unordered list with two items"],
+  ["ol", "An ordered list with two items"],
+  ["dl", "A definition list with one definition."],
+  ["figure", "A figure with an image and a caption. Th"],
+  ["hr", ""],
+  ["p", "An image that stands on its own, outside"],
+  ["img", "A standalone image whose alt text is its"],
+  ["p", "A canvas that a script draws into. Readi"],
+  ["canvas", ""],
+  ["p", "Inline SVG, which is a tracked block in "],
+  ["svg", ""],
+  ["p", "An iframe with its content inline, so it"],
+  ["iframe", ""],
+  ["p", "A video and an audio element, both with "],
+  ["video", ""],
+  ["audio", ""],
+  ["p", "A form with several controls. A page wit"],
+  ["form", "Query Scope AllOpen Notes Run"],
+  ["h2", "3. Nesting"],
+  ["p", "A tracked element inside another tracked"],
+  ["h3", "3.1 A list inside a list"],
+  ["ul", "First level Second level Third level, a "],
+  ["h3", "3.2 A table inside a figure"],
+  ["figure", "NestedCount Tables in figures1 The figur"],
+  ["h3", "3.3 A quote inside a quote"],
+  ["blockquote", "The outer quote. The inner quote, which "],
+  ["h3", "3.4 A table and a list inside a form"],
+  ["form", "Row Another row A list inside the same f"],
+  ["h3", "3.5 A paragraph inside a list item"],
+  ["ul", "A paragraph nested in a list item. A sec"],
+  ["h2", "4. Block identity"],
+  ["p", "Identity comes from a hash of the block'"],
+  ["p", "The same paragraph, repeated verbatim."],
+  ["p", "The same paragraph, repeated verbatim."],
+  ["p", "The same paragraph, repeated verbatim."],
+  ["p", "The same paragraph, repeated verbatim."],
+  ["p", "The same paragraph, repeated verbatim."],
+  ["h3", "Repeated heading"],
+  ["p", "Under the first."],
+  ["h3", "Repeated heading"],
+  ["p", "Under the second."],
+  ["h3", "Repeated heading"],
+  ["p", "Under the third. All three should appear"],
+  ["h3", "4.1 Whitespace that should collapse"],
+  ["p", "This paragraph has runs of spaces, newli"],
+  ["h3", "4.2 Entities and inline markup"],
+  ["p", "Inline bold, italic, code, a link, and a"],
+  ["p", "Entity references, written out: & < > \" "],
+  ["h3", "4.3 Text that is not English"],
+  ["p", "Japanese: \u9045\u5ef6\u306e\u4e2d\u592e\u5024\u306f240\u30df\u30ea\u79d2\u3067\u3057\u305f\u3002"],
+  ["p", "Arabic, right to left: \u0632\u0645\u0646 \u0627\u0644\u0627\u0633\u062a\u062c\u0627\u0628\u0629 \u0643\u0627\u0646"],
+  ["p", "Combining marks, written as characters r"],
+  ["p", "A single unbroken string, which should n"],
+  ["h2", "5. Links and the graph"],
+  ["p", "Four of the links below are graph edges:"],
+  ["ul", "A Markdown sibling: stress-notes.md An H"],
+  ["p", "Links that are not graph edges:"],
+  ["ul", "An anchor on this page: back to section "],
+  ["h2", "6. External resources"],
+  ["p", "This page asks for four remote things: a"],
+  ["p", "A remote image, which should render brok"],
+  ["img", "A remote image that the network policy s"],
+  ["p", "A remote frame, which should stay empty:"],
+  ["iframe", ""],
+  ["h2", "7. Layout and the scroll tracker"],
+  ["p", "The reading bridge reports each block's "],
+  ["h3", "7.1 A block taller than the viewport"],
+  ["p", "The block below is 2400 pixels tall. It "],
+  ["figure", "A very tall figure. Scroll through it sl"],
+  ["h3", "7.2 A sticky heading"],
+  ["h4", "This heading sticks to the top while you"],
+  ["p", "A sticky element keeps reporting a recta"],
+  ["h3", "7.3 Zero-height and hidden blocks"],
+  ["p", "The next paragraph has zero height. The "],
+  ["p", "A paragraph with no height."],
+  ["p", "A paragraph that is not displayed at all"],
+  ["h3", "7.4 A block inside a scrolling container"],
+  ["table", "Column AColumn BColumn CColumn DColumn E"],
+  ["p", "The table above scrolls horizontally ins"],
+  ["h2", "8. A long tail"],
+  ["p", "One hundred and twenty numbered paragrap"],
+  ["h3", "8.1 Paragraphs 1 to 20"],
+  ["p", "Paragraph 001. The queue held steady thr"],
+  ["p", "Paragraph 002. The retry held steady thr"],
+  ["p", "Paragraph 003. The cache held steady thr"],
+  ["p", "Paragraph 004. The index held steady thr"],
+  ["p", "Paragraph 005. The shard held steady thr"],
+  ["p", "Paragraph 006. The replica held steady t"],
+  ["p", "Paragraph 007. The budget held steady th"],
+  ["p", "Paragraph 008. The window held steady th"],
+  ["p", "Paragraph 009. The cursor held steady th"],
+  ["p", "Paragraph 010. The digest held steady th"],
+  ["p", "Paragraph 011. The anchor held steady th"],
+  ["p", "Paragraph 012. The latency held steady t"],
+  ["p", "Paragraph 013. The queue held steady thr"],
+  ["p", "Paragraph 014. The retry held steady thr"],
+  ["p", "Paragraph 015. The cache held steady thr"],
+  ["p", "Paragraph 016. The index held steady thr"],
+  ["p", "Paragraph 017. The shard held steady thr"],
+  ["p", "Paragraph 018. The replica held steady t"],
+  ["p", "Paragraph 019. The budget held steady th"],
+  ["p", "Paragraph 020. The window held steady th"],
+  ["h3", "8.2 Paragraphs 21 to 40"],
+  ["p", "Paragraph 021. The cursor held steady th"],
+  ["p", "Paragraph 022. The digest held steady th"],
+  ["p", "Paragraph 023. The anchor held steady th"],
+  ["p", "Paragraph 024. The latency held steady t"],
+  ["p", "Paragraph 025. The queue held steady thr"],
+  ["p", "Paragraph 026. The retry held steady thr"],
+  ["p", "Paragraph 027. The cache held steady thr"],
+  ["p", "Paragraph 028. The index held steady thr"],
+  ["p", "Paragraph 029. The shard held steady thr"],
+  ["p", "Paragraph 030. The replica held steady t"],
+  ["p", "Paragraph 031. The budget held steady th"],
+  ["p", "Paragraph 032. The window held steady th"],
+  ["p", "Paragraph 033. The cursor held steady th"],
+  ["p", "Paragraph 034. The digest held steady th"],
+  ["p", "Paragraph 035. The anchor held steady th"],
+  ["p", "Paragraph 036. The latency held steady t"],
+  ["p", "Paragraph 037. The queue held steady thr"],
+  ["p", "Paragraph 038. The retry held steady thr"],
+  ["p", "Paragraph 039. The cache held steady thr"],
+  ["p", "Paragraph 040. The index held steady thr"],
+  ["h3", "8.3 Paragraphs 41 to 60"],
+  ["p", "Paragraph 041. The shard held steady thr"],
+  ["p", "Paragraph 042. The replica held steady t"],
+  ["p", "Paragraph 043. The budget held steady th"],
+  ["p", "Paragraph 044. The window held steady th"],
+  ["p", "Paragraph 045. The cursor held steady th"],
+  ["p", "Paragraph 046. The digest held steady th"],
+  ["p", "Paragraph 047. The anchor held steady th"],
+  ["p", "Paragraph 048. The latency held steady t"],
+  ["p", "Paragraph 049. The queue held steady thr"],
+  ["p", "Paragraph 050. The retry held steady thr"],
+  ["p", "Paragraph 051. The cache held steady thr"],
+  ["p", "Paragraph 052. The index held steady thr"],
+  ["p", "Paragraph 053. The shard held steady thr"],
+  ["p", "Paragraph 054. The replica held steady t"],
+  ["p", "Paragraph 055. The budget held steady th"],
+  ["p", "Paragraph 056. The window held steady th"],
+  ["p", "Paragraph 057. The cursor held steady th"],
+  ["p", "Paragraph 058. The digest held steady th"],
+  ["p", "Paragraph 059. The anchor held steady th"],
+  ["p", "Paragraph 060. The latency held steady t"],
+  ["h3", "8.4 Paragraphs 61 to 80"],
+  ["p", "Paragraph 061. The queue held steady thr"],
+  ["p", "Paragraph 062. The retry held steady thr"],
+  ["p", "Paragraph 063. The cache held steady thr"],
+  ["p", "Paragraph 064. The index held steady thr"],
+  ["p", "Paragraph 065. The shard held steady thr"],
+  ["p", "Paragraph 066. The replica held steady t"],
+  ["p", "Paragraph 067. The budget held steady th"],
+  ["p", "Paragraph 068. The window held steady th"],
+  ["p", "Paragraph 069. The cursor held steady th"],
+  ["p", "Paragraph 070. The digest held steady th"],
+  ["p", "Paragraph 071. The anchor held steady th"],
+  ["p", "Paragraph 072. The latency held steady t"],
+  ["p", "Paragraph 073. The queue held steady thr"],
+  ["p", "Paragraph 074. The retry held steady thr"],
+  ["p", "Paragraph 075. The cache held steady thr"],
+  ["p", "Paragraph 076. The index held steady thr"],
+  ["p", "Paragraph 077. The shard held steady thr"],
+  ["p", "Paragraph 078. The replica held steady t"],
+  ["p", "Paragraph 079. The budget held steady th"],
+  ["p", "Paragraph 080. The window held steady th"],
+  ["h3", "8.5 Paragraphs 81 to 100"],
+  ["p", "Paragraph 081. The cursor held steady th"],
+  ["p", "Paragraph 082. The digest held steady th"],
+  ["p", "Paragraph 083. The anchor held steady th"],
+  ["p", "Paragraph 084. The latency held steady t"],
+  ["p", "Paragraph 085. The queue held steady thr"],
+  ["p", "Paragraph 086. The retry held steady thr"],
+  ["p", "Paragraph 087. The cache held steady thr"],
+  ["p", "Paragraph 088. The index held steady thr"],
+  ["p", "Paragraph 089. The shard held steady thr"],
+  ["p", "Paragraph 090. The replica held steady t"],
+  ["p", "Paragraph 091. The budget held steady th"],
+  ["p", "Paragraph 092. The window held steady th"],
+  ["p", "Paragraph 093. The cursor held steady th"],
+  ["p", "Paragraph 094. The digest held steady th"],
+  ["p", "Paragraph 095. The anchor held steady th"],
+  ["p", "Paragraph 096. The latency held steady t"],
+  ["p", "Paragraph 097. The queue held steady thr"],
+  ["p", "Paragraph 098. The retry held steady thr"],
+  ["p", "Paragraph 099. The cache held steady thr"],
+  ["p", "Paragraph 100. The index held steady thr"],
+  ["h3", "8.6 Paragraphs 101 to 120"],
+  ["p", "Paragraph 101. The shard held steady thr"],
+  ["p", "Paragraph 102. The replica held steady t"],
+  ["p", "Paragraph 103. The budget held steady th"],
+  ["p", "Paragraph 104. The window held steady th"],
+  ["p", "Paragraph 105. The cursor held steady th"],
+  ["p", "Paragraph 106. The digest held steady th"],
+  ["p", "Paragraph 107. The anchor held steady th"],
+  ["p", "Paragraph 108. The latency held steady t"],
+  ["p", "Paragraph 109. The queue held steady thr"],
+  ["p", "Paragraph 110. The retry held steady thr"],
+  ["p", "Paragraph 111. The cache held steady thr"],
+  ["p", "Paragraph 112. The index held steady thr"],
+  ["p", "Paragraph 113. The shard held steady thr"],
+  ["p", "Paragraph 114. The replica held steady t"],
+  ["p", "Paragraph 115. The budget held steady th"],
+  ["p", "Paragraph 116. The window held steady th"],
+  ["p", "Paragraph 117. The cursor held steady th"],
+  ["p", "Paragraph 118. The digest held steady th"],
+  ["p", "Paragraph 119. The anchor held steady th"],
+  ["p", "Paragraph 120. The latency held steady t"],
+  ["h2", "9. Alignment report"],
+  ["p", "The panel below walks the live DOM with "],
+  ["p", "The panel is built out of div and span e"],
+  ["p", "Regenerate the snapshot after editing th"]
+];
+</script>
+
+<script>
+(function () {
+  // Deliberately identical to HTMLPreview.readerScript's selector and filter.
+  var SELECTOR = 'h1,h2,h3,h4,h5,h6,p,pre,blockquote,table,ul,ol,dl,figure,hr,img,canvas,svg,iframe,video,audio,form';
+
+  function blocks() {
+    if (!document.body) { return []; }
+    var all = Array.prototype.slice.call(document.body.querySelectorAll(SELECTOR));
+    return all.filter(function (element) {
+      return !element.parentElement || !element.parentElement.closest(SELECTOR);
+    });
+  }
+
+  // The parser reads a standalone image's alt attribute as its text.
+  function textOf(element) {
+    return element.tagName.toLowerCase() === 'img'
+      ? (element.getAttribute('alt') || '')
+      : (element.textContent || '');
+  }
+
+  function normalize(text) {
+    return (text || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+  }
+
+  function row(label, value, state) {
+    var line = document.createElement('div');
+    line.className = 'report-row';
+    var left = document.createElement('span');
+    left.textContent = label;
+    var right = document.createElement('span');
+    right.textContent = value;
+    if (state) { right.className = state; }
+    line.appendChild(left);
+    line.appendChild(right);
+    return line;
+  }
+
+  function render() {
+    var panel = document.getElementById('alignment-report');
+    var list = blocks();
+    panel.textContent = '';
+
+    panel.appendChild(row('DOM', list.length + ' blocks found by the reader script'));
+
+    if (!PARSER_BLOCKS.length) {
+      panel.appendChild(row('parser', 'no snapshot embedded — comparison skipped', 'bad'));
+      return list;
+    }
+
+    panel.appendChild(row('parser', PARSER_BLOCKS.length + ' blocks found in the source'));
+
+    var mismatches = [];
+    var limit = Math.max(list.length, PARSER_BLOCKS.length);
+    for (var i = 0; i < limit; i++) {
+      var domTag = list[i] ? list[i].tagName.toLowerCase() : '(missing)';
+      var domText = list[i] ? normalize(textOf(list[i])) : '';
+      var parsed = PARSER_BLOCKS[i] || ['(missing)', ''];
+      if (domTag !== parsed[0]) {
+        mismatches.push([i, domTag + ' "' + domText + '"', parsed[0] + ' "' + parsed[1] + '"']);
+      }
+    }
+
+    if (!mismatches.length && list.length === PARSER_BLOCKS.length) {
+      panel.appendChild(row('result', 'aligned — every ordinal points at the same element', 'good'));
+    } else {
+      panel.appendChild(row('result', mismatches.length + ' ordinals disagree', 'bad'));
+      mismatches.slice(0, 12).forEach(function (entry) {
+        panel.appendChild(row('#' + entry[0], 'DOM ' + entry[1], 'bad'));
+        panel.appendChild(row('', 'src ' + entry[2]));
+      });
+      if (mismatches.length > 12) {
+        panel.appendChild(row('', '…and ' + (mismatches.length - 12) + ' more'));
+      }
+    }
+    return list;
+  }
+
+  // A badge showing which block sits at the reading line, so a wrong ordinal is
+  // visible while scrolling rather than only in the report.
+  var tracked = [];
+  function updateBadge() {
+    var badge = document.getElementById('scroll-badge');
+    if (!badge || !tracked.length) { return; }
+    var line = window.innerHeight * 0.35;
+    var current = null;
+    for (var i = 0; i < tracked.length; i++) {
+      var rect = tracked[i].getBoundingClientRect();
+      if (rect.top <= line) { current = i; } else { break; }
+    }
+    if (current === null) { badge.textContent = 'block —'; return; }
+    var parsed = PARSER_BLOCKS[current];
+    badge.textContent = 'block ' + current + ' · ' + tracked[current].tagName.toLowerCase()
+      + (parsed ? (parsed[0] === tracked[current].tagName.toLowerCase() ? ' ✓' : ' ✗ src says ' + parsed[0]) : '');
+  }
+
+  function start() {
+    tracked = render();
+    updateBadge();
+  }
+
+  window.addEventListener('scroll', updateBadge, { passive: true });
+  window.addEventListener('resize', updateBadge, { passive: true });
+  window.addEventListener('load', start);
+  start();
+
+  // Draw into the canvas from section 2, so a canvas block has real content
+  // without needing anything from the network.
+  var canvas = document.getElementById('stress-canvas');
+  if (canvas && canvas.getContext) {
+    var context = canvas.getContext('2d');
+    context.fillStyle = '#2f6f4f';
+    for (var b = 0; b < 24; b++) {
+      var height = 20 + Math.round(110 * Math.abs(Math.sin(b / 2.4)));
+      context.fillRect(b * 26 + 4, 140 - height, 18, height);
+    }
+  }
+})();
+</script>
+
+</main>
+</body>
+</html>

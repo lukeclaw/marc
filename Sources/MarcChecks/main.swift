@@ -662,6 +662,80 @@ struct MarcChecks {
             "An unclosed element should still produce its block"
         )
 
+        // Markup a browser accepts and repairs. The block list has to end up
+        // where the rendered page puts it, or every reading mark after the
+        // first repair lands on the wrong element.
+        try require(
+            HTMLParser.parse("<p>One<p>Two").blocks.map(\.text) == ["One", "Two"],
+            "A paragraph closed by the next paragraph should be two blocks"
+        )
+        try require(
+            HTMLParser.parse("<p>Lead<h2>Heading</h2><p>Tail").headings.map(\.title) == ["Heading"],
+            "An unclosed paragraph should not swallow the heading after it"
+        )
+        try require(
+            HTMLParser.parse("<ul><li>One<li>Two</ul><p>After").blocks.map(\.tag) == ["ul", "p"],
+            "Unclosed list items should not stop the list from closing"
+        )
+        try require(
+            HTMLParser.parse("<p>Text</p></p><p>After").blocks.map(\.text) == ["Text", "", "After"],
+            "A stray end tag for a paragraph should make the empty one a browser makes"
+        )
+        try require(
+            HTMLParser.parse("<blockquote>Quote</section><p>After").blocks.map(\.text)
+                == ["QuoteAfter"],
+            "An end tag matching nothing on the stack should be ignored, leaving the quote open"
+        )
+        try require(
+            HTMLParser.parse("<div/><p>After").blocks.map(\.text) == ["After"],
+            "A trailing slash should not close an HTML element"
+        )
+        try require(
+            HTMLParser.parse("<svg><title>Chart</title><rect/></svg><p>After").blocks.map(\.tag)
+                == ["svg", "p"],
+            "A trailing slash should close a foreign element"
+        )
+        try require(
+            HTMLParser.parse("<svg><title>Chart</title></svg><title>Real</title>").title == "Real",
+            "A title inside inline SVG is not the document's title"
+        )
+
+        // Text that only looks like markup.
+        try require(
+            HTMLParser.parse("<p title=\"a > b\">Body</p>").blocks.first?.text == "Body",
+            "A greater-than sign inside an attribute value should not end its tag"
+        )
+        try require(
+            HTMLParser.parse("<p>Before<!-- <b>hidden</b> -->After</p>").blocks.first?.text
+                == "BeforeAfter",
+            "A comment should run to its end rather than to the first angle bracket"
+        )
+        try require(
+            HTMLParser.parse("<p>5 < 6 and 7 > 4</p>").blocks.first?.text == "5 < 6 and 7 > 4",
+            "An angle bracket that opens no tag is text"
+        )
+        try require(
+            HTMLParser.parse("<img alt=\"see src=https://nowhere.example/x.png\" src=\"local.png\">")
+                .externalResources.isEmpty,
+            "An attribute name inside another attribute's value is not a request"
+        )
+        try require(
+            HTMLParser.parse("<script>if (a < b) { x = \"<p>no</p>\"; }</script><p>After")
+                .blocks.map(\.tag) == ["p"],
+            "A comparison inside a script should not open a block"
+        )
+
+        // Entity references, decoded in one pass.
+        try require(
+            HTMLParser.parse("<p>&amp;lt;p&amp;gt;</p>").blocks.first?.text == "&lt;p&gt;",
+            "A doubled entity should decode once, not twice"
+        )
+        try require(
+            HTMLParser.parse("<p>&mdash; &#8212; &#x2192; &nosuchentity;</p>").blocks.first?.text
+                == "— — → &nosuchentity;",
+            "Named and numeric references should decode, and unknown names should not"
+        )
+
         try require(DocumentFormat.of(URL(fileURLWithPath: "/a/b.md")) == .markdown, "md was not Markdown")
         try require(DocumentFormat.of(URL(fileURLWithPath: "/a/b.HTML")) == .html, "HTML was not html")
         try require(DocumentFormat.of(URL(fileURLWithPath: "/a/b.txt")) == nil, "txt is not a marc document")
