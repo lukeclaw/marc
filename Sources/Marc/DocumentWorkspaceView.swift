@@ -3,6 +3,7 @@ import MarcCore
 import SwiftUI
 
 struct DocumentWorkspaceView: View {
+    @EnvironmentObject private var store: DocumentStore
     @ObservedObject var document: MarkdownDocument
     @Binding var mode: WorkspaceMode
     @Binding var navigationTarget: String?
@@ -26,27 +27,42 @@ struct DocumentWorkspaceView: View {
                 )
                 Divider()
             }
+            if document.format == .html {
+                HTMLDocumentBar(document: document)
+                Divider()
+            }
             switch mode {
             case .rendered:
-                MarkdownPreview(
-                    document: document,
-                    navigationTarget: $navigationTarget,
-                    attentionHighlightTarget: $attentionHighlightTarget
-                )
+                renderedView
             case .source:
                 SourceEditor(document: document)
             case .split:
                 HSplitView {
                     SourceEditor(document: document)
                         .frame(minWidth: 320)
-                    MarkdownPreview(
-                        document: document,
-                        navigationTarget: $navigationTarget,
-                        attentionHighlightTarget: $attentionHighlightTarget
-                    )
+                    renderedView
                         .frame(minWidth: 360)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var renderedView: some View {
+        switch document.format {
+        case .markdown:
+            MarkdownPreview(
+                document: document,
+                navigationTarget: $navigationTarget,
+                attentionHighlightTarget: $attentionHighlightTarget
+            )
+        case .html:
+            HTMLPreview(
+                document: document,
+                navigationTarget: $navigationTarget,
+                openLink: { store.openLink($0, from: document) },
+                openExternal: { store.openExternalLink($0) }
+            )
         }
     }
 
@@ -66,6 +82,87 @@ struct DocumentWorkspaceView: View {
             mode = .rendered
         }
         navigationTarget = block.id
+    }
+}
+
+/// Shows what marc is doing with an HTML page and what it is holding back.
+private struct HTMLDocumentBar: View {
+    @ObservedObject var document: MarkdownDocument
+
+    private var blocked: [String] { document.blockedExternalResources }
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Image(systemName: shapeSymbol)
+                .foregroundStyle(.secondary)
+            Text(shapeText)
+                .font(.callout)
+
+            if !blocked.isEmpty {
+                Text("·").foregroundStyle(.tertiary)
+                Image(systemName: "network.slash")
+                    .foregroundStyle(.orange)
+                Text(blockedText)
+                    .font(.callout)
+                    .help(blocked.prefix(8).joined(separator: "\n"))
+                Button("Allow") { document.htmlAllowsNetwork = true }
+                    .buttonStyle(.link)
+                    .help("Let this page load its external resources. Remembered for this file.")
+            }
+
+            Spacer()
+
+            Menu {
+                Picker("Treat As", selection: shapeBinding) {
+                    Text("Document").tag(HTMLDocumentShape.prose)
+                    Text("App").tag(HTMLDocumentShape.app)
+                }
+                .pickerStyle(.inline)
+
+                Divider()
+
+                Toggle("Run Page Scripts", isOn: scriptBinding)
+                Toggle("Allow Network Access", isOn: networkBinding)
+            } label: {
+                Label("Page Settings", systemImage: "gearshape")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.bar)
+    }
+
+    private var shapeSymbol: String {
+        document.tracksReadingProgress ? "doc.richtext" : "app.dashed"
+    }
+
+    private var shapeText: String {
+        document.tracksReadingProgress
+            ? "Read as a document"
+            : "Treated as an app · reading progress off"
+    }
+
+    private var blockedText: String {
+        blocked.count == 1
+            ? "1 external resource blocked"
+            : "\(blocked.count) external resources blocked"
+    }
+
+    private var shapeBinding: Binding<HTMLDocumentShape> {
+        Binding(
+            get: { document.htmlShape ?? .prose },
+            set: { document.htmlShape = $0 }
+        )
+    }
+
+    private var scriptBinding: Binding<Bool> {
+        Binding(get: { document.htmlAllowsScripts }, set: { document.htmlAllowsScripts = $0 })
+    }
+
+    private var networkBinding: Binding<Bool> {
+        Binding(get: { document.htmlAllowsNetwork }, set: { document.htmlAllowsNetwork = $0 })
     }
 }
 
@@ -203,6 +300,7 @@ struct MarkdownPreview: View {
     @Binding var attentionHighlightTarget: String?
     @State private var readingCandidateID: String?
     @State private var readingTask: Task<Void, Never>?
+    @State private var scrollTracker = ReadingScrollTracker()
 
     private var parsed: ParsedMarkdown { document.parsed }
     private var theme: MarkdownTheme { document.preferences.theme }
@@ -272,7 +370,12 @@ struct MarkdownPreview: View {
                 .coordinateSpace(name: readingCoordinateSpace)
                 .background(theme.background.color)
                 .onPreferenceChange(BlockFramePreferenceKey.self) { frames in
-                    updateReadingCandidate(frames: frames, viewportHeight: viewport.size.height)
+                    updateReadingProgress(frames: frames, viewportHeight: viewport.size.height)
+                }
+                .onChange(of: document.id) {
+                    scrollTracker.reset()
+                    readingCandidateID = nil
+                    readingTask?.cancel()
                 }
                 .onChange(of: navigationTarget) {
                     guard let target = navigationTarget else { return }
@@ -290,7 +393,7 @@ struct MarkdownPreview: View {
             readingTask?.cancel()
         }
         .environment(\.openURL, OpenURLAction { url in
-            if DocumentStore.markdownExtensions.contains(url.pathExtension.lowercased()) {
+            if DocumentFormat.of(url) != nil {
                 store.openLink(url, from: document)
                 return .handled
             }
@@ -319,24 +422,17 @@ struct MarkdownPreview: View {
         return luminance > 0.55 ? .dark : .light
     }
 
-    private func updateReadingCandidate(frames: [String: CGRect], viewportHeight: CGFloat) {
-        let readingLine = viewportHeight * 0.55
-        let pendingBlocks = document.pendingReadingBlocks
-        let crossingCandidate = pendingBlocks.first { block in
-            guard let frame = frames[block.id] else { return false }
-            return frame.minY <= readingLine && frame.maxY >= readingLine
+    private func updateReadingProgress(frames: [String: CGRect], viewportHeight: CGFloat) {
+        let update = scrollTracker.advance(
+            blockIDs: parsed.blocks.map(\.id),
+            frames: frames.mapValues { ReadingScrollTracker.Frame(minY: $0.minY, maxY: $0.maxY) },
+            viewportHeight: viewportHeight
+        )
+        if !update.read.isEmpty {
+            document.markBlocksRead(update.read)
         }
-        let visibleCandidate = pendingBlocks
-            .compactMap { block -> (MarkdownBlock, CGFloat)? in
-                guard let frame = frames[block.id], frame.maxY >= 0, frame.minY <= viewportHeight else {
-                    return nil
-                }
-                return (block, abs(frame.midY - readingLine))
-            }
-            .min { $0.1 < $1.1 }?
-            .0
-        let candidate = (crossingCandidate ?? visibleCandidate)?.id
 
+        let candidate = update.atReadingLine
         guard candidate != readingCandidateID else { return }
         readingTask?.cancel()
         readingCandidateID = candidate

@@ -8,9 +8,11 @@ import UniformTypeIdentifiers
 final class MarkdownDocument: ObservableObject, Identifiable {
     let id = UUID()
     let url: URL
+    let format: DocumentFormat
     @Published var content: String {
         didSet {
-            parsedDocument = MarkdownParser.parse(content, baseURL: url)
+            reparse()
+            reconcileReadingState(origin: contentOrigin)
             if attentionState == .running {
                 attentionTask?.cancel()
                 attentionTask = nil
@@ -27,6 +29,7 @@ final class MarkdownDocument: ObservableObject, Identifiable {
     @Published var findText = ""
     @Published var currentMatch = 0
     @Published private(set) var parsedDocument: ParsedMarkdown
+    @Published private(set) var parsedHTMLDocument: ParsedHTML?
     @Published var attentionState: AttentionRunState = .idle
     @Published var attentionProgress = 0.0
     @Published var attentionProcessedChunks = 0
@@ -37,8 +40,15 @@ final class MarkdownDocument: ObservableObject, Identifiable {
     private(set) var lastKnownModificationDate: Date?
     var attentionTask: Task<Void, Never>?
 
+    /// Where the next `content` assignment comes from. Text the reader typed is
+    /// already read; text a writer outside marc produced is not.
+    private var contentOrigin: ReadingUpdateOrigin = .localEdit
+
     init(url: URL, content: String, preferences: FilePreferences) {
-        let parsed = MarkdownParser.parse(content, baseURL: url)
+        let format = DocumentFormat.of(url) ?? .markdown
+        let parsed = format == .markdown
+            ? MarkdownParser.parse(content, baseURL: url)
+            : ParsedMarkdown(blocks: [], headings: [], references: [])
         var migratedPreferences = preferences
         if (migratedPreferences.tableWidthLayoutVersion ?? 1) < 2 {
             migratedPreferences.tableColumnWidths = migratedPreferences.tableColumnWidths?.mapValues { widths in
@@ -47,12 +57,25 @@ final class MarkdownDocument: ObservableObject, Identifiable {
             migratedPreferences.tableWidthLayoutVersion = 2
         }
         self.url = url.standardizedFileURL
+        self.format = format
         self.content = content
         self.savedContent = content
         self.preferences = migratedPreferences
         self.parsedDocument = parsed
+        self.parsedHTMLDocument = format == .html
+            ? HTMLParser.parse(content, baseURL: url)
+            : nil
         self.lastKnownModificationDate = Self.modificationDate(for: url)
-        reconcileReadingState(for: parsed)
+        reconcileReadingState(origin: .external)
+    }
+
+    private func reparse() {
+        switch format {
+        case .markdown:
+            parsedDocument = MarkdownParser.parse(content, baseURL: url)
+        case .html:
+            parsedHTMLDocument = HTMLParser.parse(content, baseURL: url)
+        }
     }
 
     deinit {
@@ -62,8 +85,64 @@ final class MarkdownDocument: ObservableObject, Identifiable {
     var displayName: String { url.deletingPathExtension().lastPathComponent }
     var isDirty: Bool { content != savedContent }
     var parsed: ParsedMarkdown { parsedDocument }
-    var pendingReadingBlocks: [MarkdownBlock] {
-        trackableBlocks(in: parsed).filter { readingStatus(for: $0) != .read }
+    var parsedHTML: ParsedHTML? { parsedHTMLDocument }
+
+    var headings: [MarkdownHeading] {
+        parsedHTMLDocument?.headings ?? parsedDocument.headings
+    }
+
+    var references: [MarkdownReference] {
+        parsedHTMLDocument?.references ?? parsedDocument.references
+    }
+
+    /// The document's blocks, whichever format produced them.
+    var structuralBlocks: [any ReadingTrackableBlock] {
+        if let html = parsedHTMLDocument { return html.blocks }
+        return parsedDocument.blocks
+    }
+
+    /// How this page is treated: as something to read, or as something to use.
+    var htmlShape: HTMLDocumentShape? {
+        get {
+            guard let parsed = parsedHTMLDocument else { return nil }
+            return preferences.htmlShape.flatMap(HTMLDocumentShape.init(rawValue:)) ?? parsed.shape
+        }
+        set { preferences.htmlShape = newValue?.rawValue }
+    }
+
+    /// HTML pages that are applications rather than documents get no reading
+    /// state; unread counts over a page with no prose are only noise.
+    var tracksReadingProgress: Bool {
+        htmlShape.map { $0 == .prose } ?? true
+    }
+
+    /// Attention analysis reads Markdown block text, so it is offered only for
+    /// Markdown documents until it understands HTML structure too.
+    var supportsAttentionAnalysis: Bool { format == .markdown }
+
+    /// An HTML page runs its own scripts by default. A local chart or demo is
+    /// not worth opening without them, and with the network blocked and file
+    /// access confined to the page's own folder, a script has nowhere to send
+    /// anything.
+    var htmlAllowsScripts: Bool {
+        get { preferences.htmlAllowsScripts ?? true }
+        set { preferences.htmlAllowsScripts = newValue }
+    }
+
+    /// Reaching the network is off until the reader allows it for this file.
+    var htmlAllowsNetwork: Bool {
+        get { preferences.htmlAllowsNetwork ?? false }
+        set { preferences.htmlAllowsNetwork = newValue }
+    }
+
+    /// External resources this page asks for that the current policy blocks.
+    var blockedExternalResources: [String] {
+        guard !htmlAllowsNetwork else { return [] }
+        return parsedHTMLDocument?.externalResources ?? []
+    }
+    var pendingReadingBlocks: [any ReadingTrackableBlock] {
+        guard tracksReadingProgress else { return [] }
+        return trackableBlocks.filter { readingStatus(for: $0) != .read }
     }
     var unreadCount: Int {
         pendingReadingBlocks.filter { readingStatus(for: $0) == .unread }.count
@@ -96,11 +175,12 @@ final class MarkdownDocument: ObservableObject, Identifiable {
     func reloadFromDisk() {
         do {
             let diskContent = try String(contentsOf: url, encoding: .utf8)
+            contentOrigin = .external
             content = diskContent
+            contentOrigin = .localEdit
             savedContent = diskContent
             lastKnownModificationDate = Self.modificationDate(for: url)
             externalConflict = false
-            reconcileReadingState(for: parsedDocument)
         } catch {
             externalConflict = true
         }
@@ -111,8 +191,9 @@ final class MarkdownDocument: ObservableObject, Identifiable {
         externalConflict = false
     }
 
-    func readingStatus(for block: MarkdownBlock) -> BlockReadingStatus {
-        guard isTrackable(block), let state = preferences.readingState else { return .read }
+    func readingStatus(for block: any ReadingTrackableBlock) -> BlockReadingStatus {
+        guard tracksReadingProgress, block.isReadingTrackable,
+              let state = preferences.readingState else { return .read }
         let key = versionKey(for: block)
         if state.readVersions.contains(key) { return .read }
         if state.changedVersions.contains(key) { return .changed }
@@ -120,16 +201,28 @@ final class MarkdownDocument: ObservableObject, Identifiable {
     }
 
     func markBlockRead(_ blockID: String) {
-        guard let block = parsed.blocks.first(where: { $0.id == blockID }), isTrackable(block) else { return }
+        markBlocksRead([blockID])
+    }
+
+    /// Marks several blocks at once. Scrolling can retire a screenful of blocks
+    /// in a single update, and each separate write would persist preferences.
+    func markBlocksRead(_ blockIDs: [String]) {
+        let wanted = Set(blockIDs)
+        let keys = trackableBlocks.filter { wanted.contains($0.id) }.map(versionKey)
+        guard !keys.isEmpty else { return }
+        if let state = preferences.readingState,
+           keys.allSatisfy(state.readVersions.contains),
+           state.changedVersions.isDisjoint(with: keys) {
+            return
+        }
         updateReadingState { state in
-            let key = versionKey(for: block)
-            state.readVersions.insert(key)
-            state.changedVersions.remove(key)
+            state.readVersions.formUnion(keys)
+            state.changedVersions.subtract(keys)
         }
     }
 
     func markSectionRead(_ headingID: String) {
-        let blocks = trackableBlocks(in: parsed).filter {
+        let blocks = trackableBlocks.filter {
             $0.id == headingID || $0.ancestorHeadingIDs.contains(headingID)
         }
         updateReadingState { state in
@@ -142,7 +235,7 @@ final class MarkdownDocument: ObservableObject, Identifiable {
     }
 
     func markSectionUnread(_ headingID: String) {
-        let blocks = trackableBlocks(in: parsed).filter {
+        let blocks = trackableBlocks.filter {
             $0.id == headingID || $0.ancestorHeadingIDs.contains(headingID)
         }
         updateReadingState { state in
@@ -155,78 +248,110 @@ final class MarkdownDocument: ObservableObject, Identifiable {
     }
 
     func markAllRead() {
-        let blocks = trackableBlocks(in: parsed)
+        let blocks = trackableBlocks
         updateReadingState { state in
             state.readVersions.formUnion(blocks.map(versionKey))
             state.changedVersions.removeAll()
         }
     }
 
-    func reconcileAfterLocalSave() {
-        let currentBlocks = trackableBlocks(in: parsed)
-        guard var state = preferences.readingState else {
-            preferences.readingState = initialReadingState(for: currentBlocks)
-            return
-        }
-        let oldBaseline = Dictionary(uniqueKeysWithValues: state.baseline.map { ($0.id, $0.signature) })
-        let currentKeys = Set(currentBlocks.map(versionKey))
-        state.readVersions.formIntersection(currentKeys)
-        state.changedVersions.formIntersection(currentKeys)
-        for block in currentBlocks where oldBaseline[block.id] != block.signature {
-            let key = versionKey(for: block)
-            state.readVersions.insert(key)
-            state.changedVersions.remove(key)
-        }
-        state.baseline = currentBlocks.map { ReadingBlockRevision(id: $0.id, signature: $0.signature) }
-        preferences.readingState = state
-    }
-
-    private func reconcileReadingState(for parsed: ParsedMarkdown) {
-        let currentBlocks = trackableBlocks(in: parsed)
+    /// Brings the stored reading state in line with a freshly parsed document.
+    ///
+    /// Blocks that survive an edit unchanged keep their state. A block that was
+    /// edited is matched to the block that previously stood in its place, so a
+    /// revision is distinguishable from genuinely new content. Revisions the
+    /// reader typed are already read; revisions an outside writer produced are
+    /// marked updated when the previous version had been read, and unread when
+    /// it had not.
+    private func reconcileReadingState(origin: ReadingUpdateOrigin) {
+        let currentBlocks = trackableBlocks
         guard var state = preferences.readingState else {
             preferences.readingState = initialReadingState(for: currentBlocks)
             return
         }
 
-        let oldBaseline = Dictionary(uniqueKeysWithValues: state.baseline.map { ($0.id, $0.signature) })
+        let previousRead = state.readVersions
+        let changes = ReadingAlignment.align(
+            previous: state.baseline.map(\.identity),
+            current: currentBlocks.map(\.readingIdentity)
+        )
+        let previousSignatures = Dictionary(
+            state.baseline.map { ($0.id, $0.signature) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
         let currentKeys = Set(currentBlocks.map(versionKey))
         state.readVersions.formIntersection(currentKeys)
         state.changedVersions.formIntersection(currentKeys)
 
-        for block in currentBlocks where oldBaseline[block.id] != block.signature {
+        for (index, change) in changes.enumerated() where index < currentBlocks.count {
+            let block = currentBlocks[index]
             let key = versionKey(for: block)
-            state.readVersions.remove(key)
-            state.changedVersions.insert(key)
+
+            switch change {
+            case .unchanged:
+                continue
+
+            case let .revised(_, previousID):
+                if origin == .localEdit {
+                    state.readVersions.insert(key)
+                    state.changedVersions.remove(key)
+                } else {
+                    let previousKey = previousSignatures[previousID].map { "\(previousID)|\($0)" }
+                    let wasRead = previousKey.map(previousRead.contains) ?? false
+                    state.readVersions.remove(key)
+                    if wasRead {
+                        state.changedVersions.insert(key)
+                    } else {
+                        state.changedVersions.remove(key)
+                    }
+                }
+
+            case .inserted:
+                if origin == .localEdit {
+                    state.readVersions.insert(key)
+                    state.changedVersions.remove(key)
+                } else {
+                    state.readVersions.remove(key)
+                    state.changedVersions.remove(key)
+                }
+            }
         }
 
-        state.baseline = currentBlocks.map { ReadingBlockRevision(id: $0.id, signature: $0.signature) }
+        state.baseline = currentBlocks.map(Self.revision)
+        guard state != preferences.readingState else { return }
         preferences.readingState = state
     }
 
-    private func initialReadingState(for blocks: [MarkdownBlock]) -> ReadingState {
+    private func initialReadingState(for blocks: [any ReadingTrackableBlock]) -> ReadingState {
         ReadingState(
-            baseline: blocks.map { ReadingBlockRevision(id: $0.id, signature: $0.signature) },
+            baseline: blocks.map(Self.revision),
             readVersions: [],
             changedVersions: []
         )
     }
 
+    private static func revision(for block: any ReadingTrackableBlock) -> ReadingBlockRevision {
+        let identity = block.readingIdentity
+        return ReadingBlockRevision(
+            id: identity.id,
+            signature: identity.signature,
+            kind: identity.kind,
+            section: identity.section
+        )
+    }
+
     private func updateReadingState(_ update: (inout ReadingState) -> Void) {
-        var state = preferences.readingState ?? initialReadingState(for: trackableBlocks(in: parsed))
+        var state = preferences.readingState ?? initialReadingState(for: trackableBlocks)
         update(&state)
         preferences.readingState = state
     }
 
-    private func trackableBlocks(in parsed: ParsedMarkdown) -> [MarkdownBlock] {
-        parsed.blocks.filter(isTrackable)
+    private var trackableBlocks: [any ReadingTrackableBlock] {
+        structuralBlocks.filter(\.isReadingTrackable)
     }
 
-    private func isTrackable(_ block: MarkdownBlock) -> Bool {
-        if case .horizontalRule = block.kind { return false }
-        return true
-    }
-
-    private func versionKey(for block: MarkdownBlock) -> String {
+    private func versionKey(for block: any ReadingTrackableBlock) -> String {
         "\(block.id)|\(block.signature)"
     }
 
@@ -239,6 +364,7 @@ final class MarkdownDocument: ObservableObject, Identifiable {
 final class ThemeStore {
     private var values: [String: FilePreferences] = [:]
     private let fileURL: URL
+    private let writeQueue = DispatchQueue(label: "marc.preferences.write", qos: .utility)
 
     init() {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -258,7 +384,10 @@ final class ThemeStore {
     func save(_ preferences: FilePreferences, for url: URL) {
         values[url.standardizedFileURL.path] = preferences
         guard let data = try? JSONEncoder().encode(values) else { return }
-        try? data.write(to: fileURL, options: .atomic)
+        let destination = fileURL
+        writeQueue.async {
+            try? data.write(to: destination, options: .atomic)
+        }
     }
 }
 
@@ -356,11 +485,8 @@ final class DocumentStore: ObservableObject {
 
     func showOpenPanel() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [
-            UTType(filenameExtension: "md"),
-            UTType(filenameExtension: "markdown"),
-            .plainText
-        ].compactMap { $0 }
+        panel.allowedContentTypes = DocumentFormat.allExtensions
+            .compactMap { UTType(filenameExtension: $0) } + [.plainText]
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
         panel.begin { [weak self] response in
@@ -369,18 +495,24 @@ final class DocumentStore: ObservableObject {
         }
     }
 
-    static let markdownExtensions = ["md", "markdown", "mdown", "mkd"]
+    static let openableExtensions = DocumentFormat.allExtensions
 
     /// Asks for a location, writes a starter file there, and opens it as a tab.
-    func newDocument(in folder: URL? = nil, groupID: UUID? = nil, suggestedName: String = "Untitled.md") {
+    func newDocument(
+        in folder: URL? = nil,
+        groupID: UUID? = nil,
+        format: DocumentFormat = .markdown,
+        suggestedName: String? = nil
+    ) {
         let panel = NSSavePanel()
-        panel.title = "New Markdown File"
+        panel.title = "New \(format.displayName) File"
         panel.prompt = "Create"
         panel.nameFieldLabel = "File name:"
-        panel.nameFieldStringValue = suggestedName
+        panel.nameFieldStringValue = suggestedName ?? "Untitled.\(format.defaultExtension)"
         panel.canCreateDirectories = true
         panel.isExtensionHidden = false
-        panel.allowedContentTypes = [UTType(filenameExtension: "md"), .plainText].compactMap { $0 }
+        panel.allowedContentTypes = format.fileExtensions
+            .compactMap { UTType(filenameExtension: $0) } + [.plainText]
         if let folder {
             panel.directoryURL = folder
         } else if let current = selectedDocument?.url.deletingLastPathComponent() {
@@ -388,16 +520,23 @@ final class DocumentStore: ObservableObject {
         }
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
-            Task { @MainActor in self?.createDocument(at: url, groupID: groupID) }
+            Task { @MainActor in
+                self?.createDocument(at: url, groupID: groupID, format: format)
+            }
         }
     }
 
     /// Creates the file at `url` if it is missing, then opens it.
     @discardableResult
-    func createDocument(at url: URL, groupID: UUID? = nil) -> Bool {
+    func createDocument(
+        at url: URL,
+        groupID: UUID? = nil,
+        format: DocumentFormat? = nil
+    ) -> Bool {
         var target = url.standardizedFileURL
-        if !Self.markdownExtensions.contains(target.pathExtension.lowercased()) {
-            target.appendPathExtension("md")
+        let resolvedFormat = DocumentFormat.of(target) ?? format ?? .markdown
+        if DocumentFormat.of(target) == nil {
+            target.appendPathExtension(resolvedFormat.defaultExtension)
         }
 
         if !FileManager.default.fileExists(atPath: target.path) {
@@ -407,7 +546,8 @@ final class DocumentStore: ObservableObject {
                     at: target.deletingLastPathComponent(),
                     withIntermediateDirectories: true
                 )
-                try "# \(title)\n\n".write(to: target, atomically: true, encoding: .utf8)
+                try Self.starterContent(for: resolvedFormat, title: title)
+                    .write(to: target, atomically: true, encoding: .utf8)
             } catch {
                 errorMessage = "Could not create \(target.lastPathComponent): \(error.localizedDescription)"
                 return false
@@ -421,7 +561,40 @@ final class DocumentStore: ObservableObject {
         return true
     }
 
-    /// Opens a Markdown link, offering to create the file when it does not exist yet.
+    /// Sends a link that leaves the local folder to the default browser, after
+    /// asking. Nothing in a document opens a remote page on its own.
+    func openExternalLink(_ url: URL) {
+        let alert = NSAlert()
+        alert.messageText = "Open this link in your browser?"
+        alert.informativeText = url.absoluteString
+        alert.addButton(withTitle: "Open in Browser")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    private static func starterContent(for format: DocumentFormat, title: String) -> String {
+        switch format {
+        case .markdown:
+            return "# \(title)\n\n"
+        case .html:
+            return """
+            <!doctype html>
+            <html lang="en">
+            <head>
+            <meta charset="utf-8">
+            <title>\(title)</title>
+            </head>
+            <body>
+            <h1>\(title)</h1>
+            </body>
+            </html>
+
+            """
+        }
+    }
+
+    /// Opens a document link, offering to create the file when it does not exist yet.
     func openLink(_ url: URL, from document: MarkdownDocument) {
         let resolved = url.isFileURL
             ? url.standardizedFileURL
@@ -506,7 +679,6 @@ final class DocumentStore: ObservableObject {
         do {
             try document.content.write(to: document.url, atomically: true, encoding: .utf8)
             document.markSaved()
-            document.reconcileAfterLocalSave()
             return true
         } catch {
             errorMessage = "Could not save \(document.url.lastPathComponent): \(error.localizedDescription)"
@@ -748,7 +920,7 @@ final class DocumentStore: ObservableObject {
 
         document.$preferences
             .dropFirst()
-            .debounce(for: .milliseconds(200), scheduler: RunLoop.main)
+            .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
             .sink { [weak self, weak document] _ in
                 guard let self, let document else { return }
                 self.updatePreferences(for: document)

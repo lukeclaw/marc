@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>marc HTML torture &mdash; <em>malformed</em> cases</title>
+<style>
+  :root { --ink:#16181d; --dim:#5d636e; --line:#dfe2e8; --paper:#fbfbfa; --panel:#f2f3f5; --accent:#2f6f4f; --warn:#a33a20; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink:#e8e9ec; --dim:#9aa1ad; --line:#33373f; --paper:#16181d; --panel:#1e2128; --accent:#7fc4a0; --warn:#e08a6b; }
+  }
+  html, body { background: var(--paper); }
+  body { margin:0; color: var(--ink); font: 16px/1.65 -apple-system, system-ui, "Helvetica Neue", sans-serif; }
+  main { max-width: 46rem; margin: 0 auto; padding: 3rem 1.5rem 8rem; }
+  h1 { font-size: 2rem; margin: 0 0 .5rem; letter-spacing: -.02em; }
+  h2 { font-size: 1.3rem; margin: 3rem 0 .75rem; padding-top: .75rem; border-top: 1px solid var(--line); }
+  h3 { font-size: 1rem; margin: 2rem 0 .5rem; }
+  h4 { font-size: .95rem; margin: 1.2rem 0 .4rem; color: var(--dim); }
+  p { margin: 0 0 1rem; }
+  code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { font-size: .85em; background: var(--panel); padding: .1em .35em; border-radius: 3px; }
+  pre { background: var(--panel); padding: .9rem; border-radius: 6px; overflow-x: auto; font-size: .78rem; }
+  .expect { border-left: 3px solid var(--warn); padding: .1rem 0 .1rem .9rem; margin: 0 0 1rem; color: var(--dim); font-size: .875rem; }
+  .case { border: 1px dashed var(--line); border-radius: 6px; padding: .8rem 1rem .2rem; margin: 0 0 1.5rem; position: relative; }
+  .case::before { content: attr(data-case); position: absolute; top: -.6rem; left: .8rem; background: var(--paper); padding: 0 .4rem; font: 600 .7rem ui-monospace, Menlo, monospace; color: var(--dim); }
+  .report { border: 1px solid var(--line); border-radius: 8px; padding: 1rem; background: var(--panel); font-size: .8rem; }
+  .report-row { display: flex; gap: .75rem; font-family: ui-monospace, Menlo, monospace; padding: .1rem 0; align-items: baseline; }
+  .report-row span:first-child { color: var(--dim); min-width: 4.5rem; text-align: right; flex: none; }
+  .bad { color: var(--warn); font-weight: 600; }
+  .good { color: var(--accent); font-weight: 600; }
+  .rule { height: 1px; background: var(--line); margin: .6rem 0; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>marc HTML torture</h1>
+
+<p>Every case below is markup an agent can plausibly emit and a browser accepts,
+where marc's source parser and the live DOM are likely to disagree. The clean
+cases live in <a href="html-stress-test.html">html-stress-test.html</a>. Keep
+them apart, so a real regression there is not buried under known divergence here.</p>
+
+<p class="expect">What matters in each case is whether the reader still lands on
+the same blocks the browser does, and whether anything worse than a wrong reading
+mark happens: a hang, a phantom outline entry, a lost heading, or a graph edge to
+a file that was never linked. One case is expected to diverge and is marked as
+such; the rest are here to stay aligned.</p>
+
+<p>Each case is measured on its own, so one case going wrong does not decide the
+verdict on the next. A count that differs means a reading mark would land on the
+wrong element; a count that matches with different text means the mark lands on
+the right element but its identity was taken from something nobody can see.</p>
+
+<h2>1. Tags the browser closes for you</h2>
+
+<p class="expect">HTML lets one element be closed by the start of the next, so a
+block can end where no end tag was written. Section 8 collects the cases where
+that matters most; this one is the case where a block-level element turns up
+inside a paragraph.</p>
+
+<h3>1.1 A block-level element inside a paragraph</h3>
+<div class="case" data-case="1.1">
+<p>A paragraph containing <div>a div, which the browser hoists out of it</div>
+and then some trailing text.</p>
+</div>
+
+<h2>2. Things that look like tags and are not</h2>
+
+<h3>2.1 Markup inside a comment</h3>
+<div class="case" data-case="2.1">
+<!-- <p>A paragraph inside a comment. The browser ignores it entirely.</p> -->
+<p>A comment sitting between blocks, as above, is easy to get away with: a
+scanner that stops at the first <code>&gt;</code> ends the comment inside the
+commented-out tag, but the leftovers land between blocks where there is nothing
+to attach them to.</p>
+<p>A comment holding markup <!-- <b>an aside the reader never sees</b> --> and
+sitting inside a block is the one that bites. Stopping at the first
+<code>&gt;</code> ends the comment inside the commented-out tag, and the rest of
+it lands in the block that is open. This paragraph's text, and therefore its
+identity, would then be taken partly from something nobody can see, and editing
+only the comment would mark the paragraph as revised. A comment must run to
+<code>--&gt;</code>.</p>
+</div>
+
+<h3>2.2 A greater-than sign inside an attribute value</h3>
+<div class="case" data-case="2.2">
+<p title="a > b">A paragraph whose title attribute contains a greater-than sign.
+A parser that ends the tag at the first <code>&gt;</code> ends it inside the
+quotes, and reads the rest of the attribute as text.</p>
+</div>
+
+<h3>2.3 Something that looks like an attribute inside another attribute</h3>
+<div class="case" data-case="2.3">
+<img alt="the caption mentions src=https://not-really-requested.example/x.png"
+     src="data:image/svg+xml;utf8,&lt;svg xmlns='http://www.w3.org/2000/svg' width='300' height='40'&gt;&lt;rect width='300' height='40' fill='%23dfe2e8'/&gt;&lt;/svg&gt;"
+     width="300" height="40">
+<p>The image above asks for nothing from the network. If the external-resource
+count includes <code>not-really-requested.example</code>, the prompt is naming a
+URL the page never requests, and the reader is being asked about a fiction.</p>
+</div>
+
+<h3>2.4 Comparisons and tag-shaped strings inside a script</h3>
+<div class="case" data-case="2.4">
+<script>
+  var a = 3, b = 9;
+  if (a < b && b > a) { window.__tortureCompare = "<p>not a paragraph</p>"; }
+  var closing = "<\/span>";
+</script>
+<p>The script above contains <code>&lt;</code>, <code>&gt;</code>, and a string
+holding a whole paragraph tag. None of it should reach the block list or the
+outline.</p>
+</div>
+
+<h3>2.5 Raw markup inside preformatted text</h3>
+<div class="case" data-case="2.5">
+<pre>Escaped, so it stays text:  &lt;p&gt;not a block&lt;/p&gt;
+Unescaped, so it is real:   <span>a span, which is not a tracked block</span></pre>
+<p>Preformatted text is where an agent pastes markup. Only the escaped form is
+safe, in the DOM and in the parser alike.</p>
+</div>
+
+<h3>2.6 Stray angle brackets in prose</h3>
+<div class="case" data-case="2.6">
+<p>Given 5 &lt; 6 and 7 &gt; 4 the range is < unescaped and therefore
+ambiguous > to anything that scans for angle brackets rather than parsing.</p>
+</div>
+
+<h2>3. Attribute syntax</h2>
+
+<h3>3.1 Unquoted, uppercase, and spaced attributes</h3>
+<div class="case" data-case="3.1">
+<p><A HREF=stress-notes.md>An unquoted, uppercase link to a Markdown file</A>,
+<a href = "stress-appendix.html">one with spaces around the equals sign</a>, and
+<a href='stress-notes.md'>one in single quotes</a>.</p>
+<p>All three point at files that exist, so all three belong in the graph, and
+the two that name the same file should draw one edge and not two.</p>
+</div>
+
+<h3>3.2 Query strings, fragments, and encoding in local links</h3>
+<div class="case" data-case="3.2">
+<ul>
+  <li><a href="stress-notes.md?v=2">stress-notes.md?v=2</a></li>
+  <li><a href="my%20notes.md">my%20notes.md, percent-encoded and missing</a></li>
+  <li><a href="STRESS-NOTES.MD">STRESS-NOTES.MD, uppercase extension</a></li>
+  <li><a href="./stress-notes.md">./stress-notes.md, the same file with a prefix</a></li>
+  <li><a href="stress-notes.md#a-heading">stress-notes.md with a fragment</a></li>
+</ul>
+<p>Five spellings of at most two files that exist. However many edges the graph
+draws, none of them should point at a file that is not there.</p>
+</div>
+
+<h3>3.3 A self-closed element that is not void</h3>
+<div class="case" data-case="3.3">
+<p>Below is a self-closed paragraph, which is not a void element. A trailing
+slash means nothing on an HTML element: the browser reads it as an ordinary
+opening tag and closes it at the next block-level element. Only inside foreign
+content, such as <code>&lt;rect/&gt;</code> in an SVG, does the slash close
+anything.</p>
+<p/>
+<p>Text after it, which the browser puts inside the self-closed paragraph rather
+than after it. The self-closed div, whose reach is longer, is case 8.6.</p>
+</div>
+
+<h3>3.4 Markup inside an iframe srcdoc</h3>
+<div class="case" data-case="3.4">
+<iframe title="A frame whose content is an attribute" width="320" height="70"
+        srcdoc="<p style='font:14px system-ui'>A paragraph living inside an attribute value.</p>"></iframe>
+<p>The frame's content is unescaped markup inside an attribute value, which is
+legal and common. A scanner that stops at the first <code>&gt;</code> ends the
+iframe tag partway through it.</p>
+</div>
+
+<h2>4. Entity references</h2>
+
+<div class="case" data-case="4.1">
+<p>Named: &mdash; &hellip; &copy; &rarr; &frac12; &eacute;. A name the reader
+does not know should be left as it was written rather than guessed at.</p>
+<p>Numeric: &#8212; &#8230; &#169; &#x2192;.</p>
+<p>Double-escaped: &amp;lt;p&amp;gt; renders as the text
+<code>&amp;lt;p&amp;gt;</code>, which is how a page quotes an entity without
+using it. Decoding by substituting one entity after another over the whole string
+would hand the next substitution the text the last one produced, so
+<code>&amp;amp;lt;</code> would come out as a real angle bracket the page never
+showed. Decoding has to be one pass.</p>
+<p>The page title also holds an entity and inline markup. Whatever the document
+bar shows for the title is what the parser made of
+<code>marc HTML torture &amp;mdash; &lt;em&gt;malformed&lt;/em&gt; cases</code>.</p>
+</div>
+
+<h2>5. Structure the source does not contain</h2>
+
+<h3>5.1 Content built by a script</h3>
+<div class="case" data-case="5.1" data-context="expected">
+<div id="grown"></div>
+<p>The script at the end of this file appends three paragraphs to the empty
+container above. They are in the DOM and not in the source, so every ordinal
+after this point shifts by three. The spec already names this as open work; what
+this case measures is how far the shift spreads.</p>
+</div>
+
+<h3>5.2 A template, whose contents are inert</h3>
+<div class="case" data-case="5.2">
+<template id="inert">
+  <p>A paragraph inside a template. It is in neither the rendered page nor the
+  block list, so both sides should agree to ignore it.</p>
+  <h4>A heading inside a template</h4>
+</template>
+<p>If the heading above appears in the outline, the parser is reading a template
+the browser never renders.</p>
+</div>
+
+<h3>5.3 Content that exists only when scripts are off</h3>
+<div class="case" data-case="5.3">
+<noscript>
+  <p>A paragraph inside noscript. With scripts on it is inert text. With scripts
+  turned off for this file it becomes a real element and the ordinals shift.</p>
+</noscript>
+<p>Turn scripts off for this file and reload. If the block count changes, the
+two policies disagree about what the document is.</p>
+</div>
+
+<h3>5.4 A title inside inline SVG</h3>
+<div class="case" data-case="5.4">
+<svg width="220" height="40" role="img">
+  <title>An SVG title, which is not the document title</title>
+  <rect width="220" height="40" fill="#dfe2e8"></rect>
+</svg>
+<p>If the document bar names this file "An SVG title, which is not the document
+title", the parser took a title element from inside the body of the page.</p>
+</div>
+
+<h2>6. Depth</h2>
+
+<h3>6.1 Deeply nested wrappers</h3>
+<div class="case" data-case="6.1">
+<div><div><div><div><div><div><div><div><div><div>
+<p>A paragraph ten wrappers deep. Depth by itself should cost nothing.</p>
+</div></div></div></div></div></div></div></div></div></div>
+</div>
+
+<h3>6.2 Stray end tags</h3>
+<div class="case" data-case="6.2">
+</p></section></li>
+<p>Three end tags with nothing open. An end tag that matches nothing on the
+stack has to be ignored, or a block further down gets closed by an end tag that
+was never its own. The exception is <code>&lt;/p&gt;</code>: a browser answers a
+stray one by inventing an empty paragraph, so the rendered page really does have
+a block here, and the reader has to invent the same one. A stray
+<code>&lt;/div&gt;</code> would close the box this case is drawn in, which is
+case 8.6 rather than this one.</p>
+</div>
+
+<h2>7. The report</h2>
+
+<p>Each case is measured on its own: the blocks the DOM walker finds inside it,
+against the blocks the source parser finds in the same markup parsed alone, by
+count and by text. A case whose counts differ is one where a reading mark lands
+on the wrong element. A case with the same count and different text is one where
+the mark lands on the right element but its identity was taken from something
+the reader cannot see, so the block reads as edited when nothing visible changed. Measuring each case alone is what keeps the verdicts independent, since
+in the whole file every divergence shifts everything below it.</p>
+
+<p>Case 5.1 is marked <code>expected</code>. Its paragraphs are built by a
+script, so they exist in the rendered page and not in the file, and no reader of
+the source can find them. Every other case here should stay aligned.</p>
+
+<p>The panel is built from <code>div</code> and <code>span</code> only, so it
+adds no blocks and does not disturb what it measures.</p>
+
+<div id="alignment-report" class="report"><div class="mono">Running…</div></div>
+
+<script>
+// What the source parser found per case, as one [tag, text] pair per block,
+// plus the file's totals. Regenerate with
+// scripts/html-alignment.sh --write after editing this file.
+var SOURCE_CASES = /* CASE_SNAPSHOT */ {
+  "1.1": [["p", "A paragraph containing"], ["p", ""]],
+  "2.1": [["p", "A comment sitting between blocks, as above, is easy to get away with: a scanner that stops at the first > ends the comment inside the commented-out tag, but the leftovers land between blocks where there is nothing to attach them to."], ["p", "A comment holding markup and sitting inside a block is the one that bites. Stopping at the first > ends the comment inside the commented-out tag, and the rest of it lands in the block that is open. This paragraph's text, and therefore its identity, would then be taken partly from something nobody can see, and editing only the comment would mark the paragraph as revised. A comment must run to -->."]],
+  "2.2": [["p", "A paragraph whose title attribute contains a greater-than sign. A parser that ends the tag at the first > ends it inside the quotes, and reads the rest of the attribute as text."]],
+  "2.3": [["img", "the caption mentions src=https://not-really-requested.example/x.png"], ["p", "The image above asks for nothing from the network. If the external-resource count includes not-really-requested.example, the prompt is naming a URL the page never requests, and the reader is being asked about a fiction."]],
+  "2.4": [["p", "The script above contains <, >, and a string holding a whole paragraph tag. None of it should reach the block list or the outline."]],
+  "2.5": [["pre", "Escaped, so it stays text: <p>not a block</p> Unescaped, so it is real: a span, which is not a tracked block"], ["p", "Preformatted text is where an agent pastes markup. Only the escaped form is safe, in the DOM and in the parser alike."]],
+  "2.6": [["p", "Given 5 < 6 and 7 > 4 the range is < unescaped and therefore ambiguous > to anything that scans for angle brackets rather than parsing."]],
+  "3.1": [["p", "An unquoted, uppercase link to a Markdown file, one with spaces around the equals sign, and one in single quotes."], ["p", "All three point at files that exist, so all three belong in the graph, and the two that name the same file should draw one edge and not two."]],
+  "3.2": [["ul", "stress-notes.md?v=2 my%20notes.md, percent-encoded and missing STRESS-NOTES.MD, uppercase extension ./stress-notes.md, the same file with a prefix stress-notes.md with a fragment"], ["p", "Five spellings of at most two files that exist. However many edges the graph draws, none of them should point at a file that is not there."]],
+  "3.3": [["p", "Below is a self-closed paragraph, which is not a void element. A trailing slash means nothing on an HTML element: the browser reads it as an ordinary opening tag and closes it at the next block-level element. Only inside foreign content, such as <rect/> in an SVG, does the slash close anything."], ["p", ""], ["p", "Text after it, which the browser puts inside the self-closed paragraph rather than after it. The self-closed div, whose reach is longer, is case 8.6."]],
+  "3.4": [["iframe", ""], ["p", "The frame's content is unescaped markup inside an attribute value, which is legal and common. A scanner that stops at the first > ends the iframe tag partway through it."]],
+  "4.1": [["p", "Named: \u2014 \u2026 \u00a9 \u2192 \u00bd \u00e9. A name the reader does not know should be left as it was written rather than guessed at."], ["p", "Numeric: \u2014 \u2026 \u00a9 \u2192."], ["p", "Double-escaped: &lt;p&gt; renders as the text &lt;p&gt;, which is how a page quotes an entity without using it. Decoding by substituting one entity after another over the whole string would hand the next substitution the text the last one produced, so &amp;lt; would come out as a real angle bracket the page never showed. Decoding has to be one pass."], ["p", "The page title also holds an entity and inline markup. Whatever the document bar shows for the title is what the parser made of marc HTML torture &mdash; <em>malformed</em> cases."]],
+  "5.1": [["p", "The script at the end of this file appends three paragraphs to the empty container above. They are in the DOM and not in the source, so every ordinal after this point shifts by three. The spec already names this as open work; what this case measures is how far the shift spreads."]],
+  "5.2": [["p", "If the heading above appears in the outline, the parser is reading a template the browser never renders."]],
+  "5.3": [["p", "Turn scripts off for this file and reload. If the block count changes, the two policies disagree about what the document is."]],
+  "5.4": [["svg", "An SVG title, which is not the document title"], ["p", "If the document bar names this file \"An SVG title, which is not the document title\", the parser took a title element from inside the body of the page."]],
+  "6.1": [["p", "A paragraph ten wrappers deep. Depth by itself should cost nothing."]],
+  "6.2": [["p", ""], ["p", "Three end tags with nothing open. An end tag that matches nothing on the stack has to be ignored, or a block further down gets closed by an end tag that was never its own. The exception is </p>: a browser answers a stray one by inventing an empty paragraph, so the rendered page really does have a block here, and the reader has to invent the same one. A stray </div> would close the box this case is drawn in, which is case 8.6 rather than this one."]],
+  "8.1": [["p", "First paragraph, never closed."], ["p", "Second paragraph. The browser shows two paragraphs here. A parser that waits for an end tag sees one, whose text is both of these joined together."]],
+  "8.2": [["p", "A paragraph that is never closed, followed immediately by a heading."], ["h4", "A heading that may be missing from the outline"], ["p", "If the heading above is absent from the outline panel, it was folded into the paragraph before it, and the outline no longer describes the page."]],
+  "8.3": [["ul", "First item, unclosed Second item, unclosed"], ["p", "List items are not tracked blocks, so this looks harmless. It is not: two unclosed items are two elements a browser closes and a reader might not, and the list they sit in is a block whose end depends on getting that right."]],
+  "8.4": [["blockquote", "An outer quote. An inner quote that is never closed. One end tag, two open quotes. Whichever one it closes, the block after it should still be found."]],
+  "8.6": [["p", "The tag below is <div/>. A browser does not close it: a div is not a void element and the trailing slash means nothing, so it stays open and takes what follows into itself until something closes it."], ["p", "This is the rest of section 8 with the sides reversed: there a reader might hold a block open that the browser had closed, here the browser holds an element open that a reader might have closed. Either way the two disagree about where a block ends, and every ordinal after it is wrong. The end tag on this paragraph closes the open div for both of them."]]
+};
+var SOURCE_TOTAL = /* TOTAL_SNAPSHOT */ 84;
+var SOURCE_HEADINGS = /* HEADING_SNAPSHOT */ 33;
+</script>
+
+<script>
+(function () {
+  var SELECTOR = 'h1,h2,h3,h4,h5,h6,p,pre,blockquote,table,ul,ol,dl,figure,hr,img,canvas,svg,iframe,video,audio,form';
+
+  function tracked(root) {
+    return Array.prototype.slice.call(root.querySelectorAll(SELECTOR))
+      .filter(function (element) {
+        return !element.parentElement || !element.parentElement.closest(SELECTOR);
+      });
+  }
+
+  // The parser reads a standalone image's alt attribute as its text.
+  function textOf(element) {
+    return element.tagName.toLowerCase() === 'img'
+      ? (element.getAttribute('alt') || '')
+      : (element.textContent || '');
+  }
+
+  function row(label, value, state) {
+    var line = document.createElement('div');
+    line.className = 'report-row';
+    var left = document.createElement('span');
+    left.textContent = label;
+    var right = document.createElement('span');
+    right.textContent = value;
+    if (state) { right.className = state; }
+    line.appendChild(left); line.appendChild(right);
+    return line;
+  }
+
+  function rule(panel) {
+    var line = document.createElement('div');
+    line.className = 'rule';
+    panel.appendChild(line);
+  }
+
+  // Case 5.1: grow the DOM past what the source says, on purpose.
+  var grown = document.getElementById('grown');
+  if (grown && !grown.childElementCount) {
+    for (var g = 1; g <= 3; g++) {
+      var extra = document.createElement('p');
+      extra.textContent = 'Paragraph ' + g + ' of three, built by a script and absent from the source.';
+      grown.appendChild(extra);
+    }
+  }
+
+  function render() {
+    var panel = document.getElementById('alignment-report');
+    if (!panel) { return; }
+    panel.textContent = '';
+
+    var all = tracked(document.body);
+    panel.appendChild(row('DOM', all.length + ' blocks in the rendered page'));
+    panel.appendChild(row('source', (SOURCE_TOTAL || 0) + ' blocks in the file'
+      + (SOURCE_TOTAL ? '' : ' — no snapshot embedded'), SOURCE_TOTAL ? null : 'bad'));
+    panel.appendChild(row('outline', document.querySelectorAll('h1,h2,h3,h4,h5,h6').length
+      + ' headings rendered, ' + (SOURCE_HEADINGS || 0) + ' in the outline',
+      document.querySelectorAll('h1,h2,h3,h4,h5,h6').length === SOURCE_HEADINGS ? 'good' : 'bad'));
+    rule(panel);
+
+    var diverged = 0, cases = document.querySelectorAll('.case');
+    for (var i = 0; i < cases.length; i++) {
+      var name = cases[i].getAttribute('data-case');
+      var dom = tracked(cases[i]).map(function (e) {
+        return [e.tagName.toLowerCase(), textOf(e).replace(/\s+/g, ' ').trim()];
+      });
+      var src = SOURCE_CASES[name];
+      if (src === undefined) {
+        panel.appendChild(row(name, 'DOM ' + dom.length + ' · source not measured', 'bad'));
+        continue;
+      }
+      var domCount = dom.length, srcCount = src.length;
+      var sameCount = domCount === srcCount;
+      // The first block whose text differs, which is where a reading mark would
+      // be identified by something the reader cannot see.
+      var differing = -1;
+      for (var b = 0; b < Math.min(domCount, srcCount); b++) {
+        if (dom[b][0] !== src[b][0] || dom[b][1] !== src[b][1]) { differing = b; break; }
+      }
+      var sameText = differing === -1;
+      var context = cases[i].getAttribute('data-context');
+      if (!sameCount || !sameText) { diverged++; }
+      var suffix = sameCount ? '' : ' · off by ' + (domCount - srcCount);
+      if (sameCount && !sameText) { suffix = ' · same blocks, different text'; }
+      if (sameCount && sameText) { suffix = ' · aligned'; }
+      // One case cannot be read from the source at all, and says so.
+      if (context === 'expected') { suffix += ' · expected, built by a script'; }
+      panel.appendChild(row(name, 'DOM ' + domCount + ' · source ' + srcCount + suffix,
+        sameCount && sameText ? 'good' : (context === 'expected' ? '' : 'bad')));
+      if (sameCount && !sameText) {
+        // Show where the two texts part company rather than their opening
+        // words, which are usually the same.
+        var domText = dom[differing][1], srcText = src[differing][1];
+        var at = 0;
+        while (at < domText.length && at < srcText.length && domText[at] === srcText[at]) { at++; }
+        var from = Math.max(0, at - 24);
+        panel.appendChild(row('', 'block ' + differing + ' of this case, from character ' + at));
+        panel.appendChild(row('', 'DOM  ' + (from ? '…' : '') + domText.slice(from, from + 72)));
+        panel.appendChild(row('', 'src  ' + (from ? '…' : '') + srcText.slice(from, from + 72)));
+      }
+    }
+
+    rule(panel);
+    var expected = document.querySelectorAll('.case[data-context="expected"]').length;
+    panel.appendChild(row('verdict', diverged
+      ? diverged + ' of ' + cases.length + ' cases diverge, ' + expected + ' of them expected'
+      : 'every case aligned', diverged > expected ? 'bad' : 'good'));
+  }
+
+  window.addEventListener('load', render);
+  render();
+})();
+</script>
+
+<h2>8. Elements left open</h2>
+
+<p class="expect">Each case here leaves something open that a browser closes for
+free. This is the class of markup that costs the most to get wrong: a reader that
+waits for an end tag folds everything from the first of these to the end of the
+file into one block with one reading mark, and every heading below it drops out
+of the outline. What these cases check is that block boundaries still land where
+the rendered page puts them.</p>
+
+<h3>8.1 A paragraph closed by the next paragraph</h3>
+<div class="case" data-case="8.1">
+<p>First paragraph, never closed.
+<p>Second paragraph. The browser shows two paragraphs here. A parser that waits
+for an end tag sees one, whose text is both of these joined together.</p>
+</div>
+
+<h3>8.2 A heading swallowed by an unclosed paragraph</h3>
+<div class="case" data-case="8.2">
+<p>A paragraph that is never closed, followed immediately by a heading.
+<h4>A heading that may be missing from the outline</h4>
+<p>If the heading above is absent from the outline panel, it was folded into the
+paragraph before it, and the outline no longer describes the page.</p>
+</div>
+
+<h3>8.3 List items closed by the next one</h3>
+<div class="case" data-case="8.3">
+<ul>
+  <li>First item, unclosed
+  <li>Second item, unclosed
+</ul>
+<p>List items are not tracked blocks, so this looks harmless. It is not: two
+unclosed items are two elements a browser closes and a reader might not, and the
+list they sit in is a block whose end depends on getting that right.</p>
+</div>
+
+<h3>8.4 The same tag nested and left open</h3>
+<div class="case" data-case="8.4">
+<blockquote>An outer quote.
+  <blockquote>An inner quote that is never closed.
+</blockquote>
+<p>One end tag, two open quotes. Whichever one it closes, the block after it
+should still be found.</p>
+</div>
+
+<h3>8.6 A self-closed div, which the browser leaves open</h3>
+<div class="case" data-case="8.6">
+<p>The tag below is <code>&lt;div/&gt;</code>. A browser does not close it: a
+div is not a void element and the trailing slash means nothing, so it stays open
+and takes what follows into itself until something closes it.</p>
+<div/>
+<p>This is the rest of section 8 with the sides reversed: there a reader might
+hold a block open that the browser had closed, here the browser holds an element
+open that a reader might have closed. Either way the two disagree about where a
+block ends, and every ordinal after it is wrong. The end tag on this paragraph
+closes the open div for both of them.</p></div>
+</div>
+
+<h3>8.5 Unclosed at the very end</h3>
+
+<p>The file ends with an element left open. The parser should flush what it has
+rather than dropping it or looping, and the block it produces should hold
+everything after the opening tag.</p>
+
+<blockquote>This quote has no end tag, and neither does the document.

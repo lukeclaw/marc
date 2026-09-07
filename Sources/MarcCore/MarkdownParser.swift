@@ -57,12 +57,33 @@ public struct MarkdownBlock: Identifiable, Equatable {
     public let signature: String
     public let kind: Kind
     public let ancestorHeadingIDs: [String]
+
+    /// Stable name for the block's kind, used when matching an edited block
+    /// against the block that previously stood in its place.
+    public var typeName: String { MarkdownParser.blockType(kind) }
+
+    /// The heading this block sits under, or `nil` at the top of a document.
+    public var sectionID: String? { ancestorHeadingIDs.last }
+
+    public var readingIdentity: ReadingBlockIdentity {
+        ReadingBlockIdentity(id: id, signature: signature, kind: typeName, section: sectionID)
+    }
 }
 
 public struct ParsedMarkdown {
     public let blocks: [MarkdownBlock]
     public let headings: [MarkdownHeading]
     public let references: [MarkdownReference]
+
+    public init(
+        blocks: [MarkdownBlock] = [],
+        headings: [MarkdownHeading] = [],
+        references: [MarkdownReference] = []
+    ) {
+        self.blocks = blocks
+        self.headings = headings
+        self.references = references
+    }
 }
 
 public enum MarkdownParser {
@@ -263,7 +284,7 @@ public enum MarkdownParser {
         return (hashes, title)
     }
 
-    private static func slug(_ title: String) -> String {
+    static func slug(_ title: String) -> String {
         let lowered = title.lowercased()
         let scalars = lowered.unicodeScalars.map { scalar -> Character in
             CharacterSet.alphanumerics.contains(scalar) ? Character(String(scalar)) : "-"
@@ -274,7 +295,7 @@ public enum MarkdownParser {
         return compact.isEmpty ? "section" : compact
     }
 
-    private static func stableIdentifier(_ source: String) -> String {
+    static func stableIdentifier(_ source: String) -> String {
         var hash: UInt64 = 14_695_981_039_346_656_037
         for byte in source.utf8 {
             hash ^= UInt64(byte)
@@ -283,7 +304,7 @@ public enum MarkdownParser {
         return String(hash, radix: 16)
     }
 
-    private static func blockType(_ kind: MarkdownBlock.Kind) -> String {
+    static func blockType(_ kind: MarkdownBlock.Kind) -> String {
         switch kind {
         case .heading: "heading"
         case .paragraph: "paragraph"
@@ -447,7 +468,12 @@ public enum MarkdownParser {
         var results: [MarkdownReference] = []
         var seen: Set<String> = []
 
-        let inlinePattern = #"\[([^\]]+)\]\(([^)\s]+(?:\.md|\.markdown)(?:#[^)]*)?)\)"#
+        // Any file marc can open is a graph edge, so a plan in Markdown and a
+        // demo in HTML end up in one graph.
+        let extensions = DocumentFormat.allExtensions
+            .map { "\\.\($0)" }
+            .joined(separator: "|")
+        let inlinePattern = "\\[([^\\]]+)\\]\\(([^)\\s]+(?:\(extensions))(?:#[^)]*)?)\\)"
         if let regex = try? NSRegularExpression(pattern: inlinePattern, options: [.caseInsensitive]) {
             let range = NSRange(source.startIndex..., in: source)
             for match in regex.matches(in: source, range: range) {
@@ -478,7 +504,10 @@ public enum MarkdownParser {
                 } else {
                     label = target
                 }
-                let destination = target.lowercased().hasSuffix(".md") ? target : "\(target).md"
+                // A wiki link without an extension means a Markdown file.
+                let destination = DocumentFormat.of(extension: (target as NSString).pathExtension) != nil
+                    ? target
+                    : "\(target).md"
                 addReference(
                     label: label,
                     destination: destination,
@@ -501,7 +530,9 @@ public enum MarkdownParser {
     ) {
         let path = destination.removingPercentEncoding?
             .components(separatedBy: "#").first ?? destination
-        guard !path.isEmpty, seen.insert(path).inserted else { return }
+        // A link out to the web is not a document in this folder.
+        guard !path.isEmpty, !path.contains("://"), !path.hasPrefix("//") else { return }
+        guard seen.insert(path).inserted else { return }
         let resolvedURL = baseURL?
             .deletingLastPathComponent()
             .appendingPathComponent(path)

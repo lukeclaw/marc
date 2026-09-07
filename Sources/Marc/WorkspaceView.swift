@@ -8,7 +8,9 @@ struct WorkspaceView: View {
     @AppStorage("tocPosition") private var tocPosition: SidebarPosition = .left
     @AppStorage("showTableOfContents") private var showTableOfContents = true
     @AppStorage("attentionAnalysisAcknowledged") private var attentionAnalysisAcknowledged = false
-    @State private var showGraph = false
+    @AppStorage("graphPanelWidth") private var graphPanelWidth = 360.0
+    @AppStorage("outlinePanelWidth") private var outlinePanelWidth = 250.0
+    @AppStorage("showLinkedFiles") private var showGraph = false
     @State private var showAttention = false
     @State private var showAttentionDisclosure = false
     @State private var showThemeEditor = false
@@ -34,7 +36,7 @@ struct WorkspaceView: View {
             attentionHighlightTarget = nil
         }
         .dropDestination(for: URL.self) { urls, _ in
-            urls.filter { ["md", "markdown", "mdown", "mkd"].contains($0.pathExtension.lowercased()) }
+            urls.filter { DocumentFormat.of($0) != nil }
                 .forEach(store.open)
             return true
         }
@@ -55,8 +57,12 @@ struct WorkspaceView: View {
     private func workspace(for document: MarkdownDocument) -> some View {
         HStack(spacing: 0) {
             if showTableOfContents && tocPosition == .left {
-                TableOfContentsView(document: document, navigationTarget: $navigationTarget)
-                Divider()
+                TableOfContentsView(
+                    document: document,
+                    navigationTarget: $navigationTarget
+                ) { showTableOfContents = false }
+                    .frame(width: outlinePanelWidth)
+                PanelResizeHandle(width: $outlinePanelWidth, edge: .trailing, range: 190...480)
             }
 
             DocumentWorkspaceView(
@@ -68,14 +74,18 @@ struct WorkspaceView: View {
             )
 
             if showTableOfContents && tocPosition == .right {
-                Divider()
-                TableOfContentsView(document: document, navigationTarget: $navigationTarget)
+                PanelResizeHandle(width: $outlinePanelWidth, edge: .leading, range: 190...480)
+                TableOfContentsView(
+                    document: document,
+                    navigationTarget: $navigationTarget
+                ) { showTableOfContents = false }
+                    .frame(width: outlinePanelWidth)
             }
 
             if showGraph {
-                Divider()
-                ReferenceGraphView(document: document)
-                    .frame(width: 300)
+                PanelResizeHandle(width: $graphPanelWidth, edge: .leading, range: 260...620)
+                ReferenceGraphView(document: document) { showGraph = false }
+                    .frame(width: graphPanelWidth)
             }
 
             if showAttention {
@@ -112,13 +122,28 @@ struct WorkspaceView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        ToolbarItemGroup(placement: .navigation) {
+            Toggle(isOn: $showTableOfContents) {
+                Label("Outline", systemImage: "sidebar.left")
+            }
+            .help(showTableOfContents ? "Hide outline (⇧⌘T)" : "Show outline (⇧⌘T)")
+
+            Toggle(isOn: $showGraph) {
+                Label("Linked Files", systemImage: "point.3.connected.trianglepath.dotted")
+            }
+            .help(showGraph ? "Hide linked files (⇧⌘G)" : "Show linked files (⇧⌘G)")
+        }
+
         ToolbarItemGroup {
-            Button {
-                store.newDocument()
+            Menu {
+                Button("New Markdown File…") { store.newDocument(format: .markdown) }
+                Button("New HTML File…") { store.newDocument(format: .html) }
             } label: {
                 Label("New", systemImage: "square.and.pencil")
+            } primaryAction: {
+                store.newDocument(format: .markdown)
             }
-            .help("New Markdown file (⌘N)")
+            .help("New file (⌘N)")
 
             Button {
                 store.showOpenPanel()
@@ -136,22 +161,6 @@ struct WorkspaceView: View {
             .frame(width: 250)
 
             Button {
-                showTableOfContents.toggle()
-            } label: {
-                Label("Table of Contents", systemImage: "sidebar.left")
-            }
-            .keyboardShortcut("t", modifiers: [.command, .shift])
-            .help("Toggle table of contents (⇧⌘T)")
-
-            Button {
-                showGraph.toggle()
-            } label: {
-                Label("Linked Files", systemImage: "point.3.connected.trianglepath.dotted")
-            }
-            .keyboardShortcut("g", modifiers: [.command, .shift])
-            .help("Toggle linked files (⇧⌘G)")
-
-            Button {
                 guard let document = store.selectedDocument else { return }
                 if !attentionAnalysisAcknowledged {
                     showAttentionDisclosure = true
@@ -165,8 +174,12 @@ struct WorkspaceView: View {
                 Label("Analyze Attention", systemImage: "scope")
             }
             .keyboardShortcut("a", modifiers: [.command, .shift])
-            .disabled(store.selectedDocument == nil)
-            .help("Analyze attention locally on request (⇧⌘A)")
+            .disabled(store.selectedDocument?.supportsAttentionAnalysis != true)
+            .help(
+                store.selectedDocument?.format == .html
+                    ? "Attention analysis reads Markdown documents"
+                    : "Analyze attention locally on request (⇧⌘A)"
+            )
             .popover(isPresented: $showAttentionDisclosure, arrowEdge: .bottom) {
                 AttentionDisclosureView(
                     modelAvailable: AttentionAnalyzer.isAvailable,
